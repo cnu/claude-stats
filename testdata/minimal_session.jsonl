@@ -1,0 +1,2 @@
+{"sessionId":"min-session-0001","uuid":"min-msg-0001","timestamp":"2026-03-02T14:00:00.000Z","type":"user","message":{"role":"user","content":[{"type":"text","text":"hello"}]}}
+{"sessionId":"min-session-0001","uuid":"min-msg-0002","timestamp":"2026-03-02T14:00:03.000Z","type":"assistant","message":{"role":"assistant","model":"claude-haiku-4-5-20251001","content":[{"type":"text","text":"Hi there!"}],"usage":{"input_tokens":100,"output_tokens":20,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
