@@ -1,0 +1,65 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          LDFLAGS="-X github.com/cnu/claude-stats/internal/cli.Version=${VERSION} -X github.com/cnu/claude-stats/internal/cli.BuildDate=${BUILD_DATE}"
+          BINARY=claude-stats-${GOOS}-${GOARCH}
+          go build -ldflags "${LDFLAGS}" -o "${BINARY}" ./cmd/claude-stats
+          tar czf "${BINARY}.tar.gz" "${BINARY}" LICENSE README.md
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude-stats-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: "*.tar.gz"
+
+  publish:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: "*.tar.gz"
