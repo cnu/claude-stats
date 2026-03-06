@@ -1,0 +1,65 @@
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+    - go test ./...
+
+builds:
+  - main: ./cmd/claude-stats
+    binary: claude-stats
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w
+      - -X github.com/cnu/claude-stats/internal/cli.Version={{.Version}}
+      - -X github.com/cnu/claude-stats/internal/cli.BuildDate={{.Date}}
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - format: tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^Merge"
+  groups:
+    - title: Features
+      regexp: "^.*feat.*$"
+    - title: Bug Fixes
+      regexp: "^.*fix.*$"
+    - title: Documentation
+      regexp: "^.*docs.*$"
+    - title: Tests
+      regexp: "^.*test.*$"
+    - title: Chores
+      regexp: "^.*chore.*$"
+    - title: CI
+      regexp: "^.*ci.*$"
+    - title: Other
+      order: 999
+
+brews:
+  - repository:
+      owner: cnu
+      name: homebrew-tap
+    homepage: https://github.com/cnu/claude-stats
+    description: Analytics for Claude Code usage - parse JSONL session files into SQLite
+    license: MIT
+    install: |
+      bin.install "claude-stats"
+    test: |
+      system "#{bin}/claude-stats", "version"
