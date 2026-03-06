@@ -56,7 +56,7 @@ func (db *DB) IngestSession(sessionFile parser.SessionFile, messages []parser.Pa
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 
 	// Delete existing data for this session (for re-ingestion)
 	sessionID := messages[0].SessionID
@@ -87,7 +87,7 @@ func (db *DB) IngestSession(sessionFile parser.SessionFile, messages []parser.Pa
 	if err != nil {
 		return fmt.Errorf("prepare message insert: %w", err)
 	}
-	defer msgStmt.Close()
+	defer msgStmt.Close() //nolint:errcheck
 
 	toolStmt, err := tx.Prepare(`
 		INSERT INTO tool_uses (message_uuid, session_id, tool_name, tool_input_preview, timestamp)
@@ -95,7 +95,7 @@ func (db *DB) IngestSession(sessionFile parser.SessionFile, messages []parser.Pa
 	if err != nil {
 		return fmt.Errorf("prepare tool_use insert: %w", err)
 	}
-	defer toolStmt.Close()
+	defer toolStmt.Close() //nolint:errcheck
 
 	// Session aggregation variables
 	var (
@@ -234,7 +234,7 @@ func (db *DB) RebuildDailyStats(tz *time.Location) error {
 	if err != nil {
 		return fmt.Errorf("query messages for daily stats: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	type dayData struct {
 		sessions     map[string]bool
@@ -296,7 +296,7 @@ func (db *DB) RebuildDailyStats(tz *time.Location) error {
 	if err != nil {
 		return fmt.Errorf("prepare daily_stats insert: %w", err)
 	}
-	defer stmt.Close()
+	defer stmt.Close() //nolint:errcheck
 
 	for dateKey, d := range days {
 		models := make([]string, 0, len(d.models))

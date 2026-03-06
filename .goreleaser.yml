@@ -22,8 +22,9 @@ builds:
       - arm64
 
 archives:
-  - format: tar.gz
-    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+  - name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats:
+      - tar.gz
     files:
       - LICENSE
       - README.md
@@ -52,14 +53,18 @@ changelog:
     - title: Other
       order: 999
 
-brews:
+homebrew_casks:
   - repository:
       owner: cnu
       name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     homepage: https://github.com/cnu/claude-stats
     description: Analytics for Claude Code usage - parse JSONL session files into SQLite
     license: MIT
-    install: |
-      bin.install "claude-stats"
-    test: |
-      system "#{bin}/claude-stats", "version"
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/claude-stats"]
+          end
+    skip_upload: auto

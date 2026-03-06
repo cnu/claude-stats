@@ -37,14 +37,14 @@ func Open(path string) (*DB, error) {
 	}
 	for _, p := range pragmas {
 		if _, err := conn.Exec(p); err != nil {
-			conn.Close()
+			_ = conn.Close()
 			return nil, fmt.Errorf("set pragma %q: %w", p, err)
 		}
 	}
 
 	db := &DB{conn: conn}
 	if err := db.RunMigrations(); err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return nil, fmt.Errorf("run migrations: %w", err)
 	}
 
@@ -59,13 +59,13 @@ func OpenMemory() (*DB, error) {
 	}
 
 	if _, err := conn.Exec("PRAGMA foreign_keys=ON"); err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return nil, fmt.Errorf("set pragma: %w", err)
 	}
 
 	db := &DB{conn: conn}
 	if err := db.RunMigrations(); err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return nil, fmt.Errorf("run migrations: %w", err)
 	}
 
@@ -113,12 +113,12 @@ func (db *DB) RunMigrations() error {
 		}
 
 		if _, err := tx.Exec(m.sql); err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return fmt.Errorf("execute migration %d: %w", m.version, err)
 		}
 
 		if _, err := tx.Exec("INSERT INTO schema_version (version) VALUES (?)", m.version); err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return fmt.Errorf("record migration %d: %w", m.version, err)
 		}
 

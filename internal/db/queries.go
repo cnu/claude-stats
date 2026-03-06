@@ -21,7 +21,7 @@ func (db *DB) ExecuteQuery(query string, limit int) (*QueryResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("execute query: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	cols, err := rows.Columns()
 	if err != nil {

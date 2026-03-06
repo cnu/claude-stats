@@ -38,7 +38,7 @@ func runQuery(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}
-	defer database.Close()
+	defer database.Close() //nolint:errcheck
 
 	query := args[0]
 

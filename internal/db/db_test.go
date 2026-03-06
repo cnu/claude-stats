@@ -15,7 +15,7 @@ import (
 func TestOpenMemory(t *testing.T) {
 	db, err := OpenMemory()
 	require.NoError(t, err)
-	defer db.Close()
+	defer db.Close() //nolint:errcheck
 
 	// Verify schema version is 1
 	var version int
@@ -27,7 +27,7 @@ func TestOpenMemory(t *testing.T) {
 func TestMigrations_Idempotent(t *testing.T) {
 	db, err := OpenMemory()
 	require.NoError(t, err)
-	defer db.Close()
+	defer db.Close() //nolint:errcheck
 
 	// Running migrations again should be a no-op
 	err = db.RunMigrations()
@@ -37,7 +37,7 @@ func TestMigrations_Idempotent(t *testing.T) {
 func TestCheckFileState_NewFile(t *testing.T) {
 	db, err := OpenMemory()
 	require.NoError(t, err)
-	defer db.Close()
+	defer db.Close() //nolint:errcheck
 
 	needs, err := db.CheckFileState("/tmp/test.jsonl", 1024, time.Now())
 	require.NoError(t, err)
@@ -47,7 +47,7 @@ func TestCheckFileState_NewFile(t *testing.T) {
 func TestCheckFileState_UnchangedFile(t *testing.T) {
 	db, err := OpenMemory()
 	require.NoError(t, err)
-	defer db.Close()
+	defer db.Close() //nolint:errcheck
 
 	now := time.Now()
 	err = db.UpdateIngestMeta("/tmp/test.jsonl", 1024, now, 50)
@@ -61,7 +61,7 @@ func TestCheckFileState_UnchangedFile(t *testing.T) {
 func TestCheckFileState_ChangedSize(t *testing.T) {
 	db, err := OpenMemory()
 	require.NoError(t, err)
-	defer db.Close()
+	defer db.Close() //nolint:errcheck
 
 	now := time.Now()
 	err = db.UpdateIngestMeta("/tmp/test.jsonl", 1024, now, 50)
@@ -75,7 +75,7 @@ func TestCheckFileState_ChangedSize(t *testing.T) {
 func TestIngestSession(t *testing.T) {
 	db, err := OpenMemory()
 	require.NoError(t, err)
-	defer db.Close()
+	defer db.Close() //nolint:errcheck
 
 	ts := time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC)
 	messages := []parser.ParsedMessage{
@@ -153,7 +153,7 @@ func TestIngestSession(t *testing.T) {
 func TestIngestSession_ReIngest(t *testing.T) {
 	db, err := OpenMemory()
 	require.NoError(t, err)
-	defer db.Close()
+	defer db.Close() //nolint:errcheck
 
 	ts := time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC)
 	messages := []parser.ParsedMessage{
@@ -182,7 +182,7 @@ func TestIngestSession_ReIngest(t *testing.T) {
 func TestRebuildDailyStats(t *testing.T) {
 	db, err := OpenMemory()
 	require.NoError(t, err)
-	defer db.Close()
+	defer db.Close() //nolint:errcheck
 
 	ts := time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC)
 	messages := []parser.ParsedMessage{
@@ -217,7 +217,7 @@ func TestRebuildDailyStats(t *testing.T) {
 func TestExecuteQuery(t *testing.T) {
 	db, err := OpenMemory()
 	require.NoError(t, err)
-	defer db.Close()
+	defer db.Close() //nolint:errcheck
 
 	result, err := db.ExecuteQuery("SELECT COUNT(*) as cnt FROM sessions", 20)
 	require.NoError(t, err)
@@ -229,7 +229,7 @@ func TestExecuteQuery(t *testing.T) {
 func TestIngestSession_EmptyMessages(t *testing.T) {
 	db, err := OpenMemory()
 	require.NoError(t, err)
-	defer db.Close()
+	defer db.Close() //nolint:errcheck
 
 	sf := parser.SessionFile{Path: "/tmp/empty.jsonl", SessionID: "sess-empty"}
 	err = db.IngestSession(sf, nil)
@@ -243,7 +243,7 @@ func TestIngestSession_EmptyMessages(t *testing.T) {
 func TestIngestSession_WithCostUSD(t *testing.T) {
 	db, err := OpenMemory()
 	require.NoError(t, err)
-	defer db.Close()
+	defer db.Close() //nolint:errcheck
 
 	ts := time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC)
 	cost := 0.0042
@@ -269,7 +269,7 @@ func TestIngestSession_WithCostUSD(t *testing.T) {
 func TestIngestSession_MetadataFromLaterMessages(t *testing.T) {
 	db, err := OpenMemory()
 	require.NoError(t, err)
-	defer db.Close()
+	defer db.Close() //nolint:errcheck
 
 	ts := time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC)
 	messages := []parser.ParsedMessage{
@@ -295,7 +295,7 @@ func TestIngestSession_MetadataFromLaterMessages(t *testing.T) {
 func TestRebuildDailyStats_NilTimezone(t *testing.T) {
 	db, err := OpenMemory()
 	require.NoError(t, err)
-	defer db.Close()
+	defer db.Close() //nolint:errcheck
 
 	// Should use local timezone and not panic
 	err = db.RebuildDailyStats(nil)
@@ -305,7 +305,7 @@ func TestRebuildDailyStats_NilTimezone(t *testing.T) {
 func TestRebuildDailyStats_MultipleDays(t *testing.T) {
 	db, err := OpenMemory()
 	require.NoError(t, err)
-	defer db.Close()
+	defer db.Close() //nolint:errcheck
 
 	day1 := time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC)
 	day2 := time.Date(2026, 3, 2, 14, 0, 0, 0, time.UTC)
@@ -338,7 +338,7 @@ func TestRebuildDailyStats_MultipleDays(t *testing.T) {
 func TestExecuteQuery_WithData(t *testing.T) {
 	db, err := OpenMemory()
 	require.NoError(t, err)
-	defer db.Close()
+	defer db.Close() //nolint:errcheck
 
 	ts := time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC)
 	msgs := []parser.ParsedMessage{
@@ -356,7 +356,7 @@ func TestExecuteQuery_WithData(t *testing.T) {
 func TestExecuteQuery_Limit(t *testing.T) {
 	db, err := OpenMemory()
 	require.NoError(t, err)
-	defer db.Close()
+	defer db.Close() //nolint:errcheck
 
 	ts := time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC)
 	var msgs []parser.ParsedMessage
@@ -376,7 +376,7 @@ func TestExecuteQuery_Limit(t *testing.T) {
 func TestExecuteQuery_InvalidSQL(t *testing.T) {
 	db, err := OpenMemory()
 	require.NoError(t, err)
-	defer db.Close()
+	defer db.Close() //nolint:errcheck
 
 	_, err = db.ExecuteQuery("SELECT * FROM nonexistent_table", 20)
 	assert.Error(t, err)
@@ -385,7 +385,7 @@ func TestExecuteQuery_InvalidSQL(t *testing.T) {
 func TestExecuteQuery_DefaultLimit(t *testing.T) {
 	db, err := OpenMemory()
 	require.NoError(t, err)
-	defer db.Close()
+	defer db.Close() //nolint:errcheck
 
 	result, err := db.ExecuteQuery("SELECT 1 as val", 0)
 	require.NoError(t, err)
@@ -402,7 +402,7 @@ func TestFormatValue(t *testing.T) {
 func TestGetTotalCost_Empty(t *testing.T) {
 	db, err := OpenMemory()
 	require.NoError(t, err)
-	defer db.Close()
+	defer db.Close() //nolint:errcheck
 
 	cost, err := db.GetTotalCost()
 	require.NoError(t, err)
@@ -412,7 +412,7 @@ func TestGetTotalCost_Empty(t *testing.T) {
 func TestCheckFileState_ChangedMtime(t *testing.T) {
 	db, err := OpenMemory()
 	require.NoError(t, err)
-	defer db.Close()
+	defer db.Close() //nolint:errcheck
 
 	now := time.Now()
 	require.NoError(t, db.UpdateIngestMeta("/tmp/test.jsonl", 1024, now, 50))
@@ -429,7 +429,7 @@ func TestOpen_FileDB(t *testing.T) {
 
 	db, err := Open(dbPath)
 	require.NoError(t, err)
-	defer db.Close()
+	defer db.Close() //nolint:errcheck
 
 	// Verify it created the directory and DB
 	_, err = os.Stat(dbPath)

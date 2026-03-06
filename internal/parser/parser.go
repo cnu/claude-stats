@@ -89,7 +89,7 @@ func ParseFile(path string) ([]ParsedMessage, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open file %s: %w", path, err)
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck
 
 	var messages []ParsedMessage
 	scanner := bufio.NewScanner(f)

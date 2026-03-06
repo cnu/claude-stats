@@ -269,7 +269,7 @@ func TestScanDirectory_NonExistent(t *testing.T) {
 func TestScanDirectory_SkipsNonJsonl(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "claude-stats-ext-*")
 	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+	defer os.RemoveAll(tmpDir) //nolint:errcheck
 
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "session.jsonl"), []byte(`{}`), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "notes.txt"), []byte("hello"), 0644))
@@ -346,7 +346,7 @@ func TestScanDirectory_InaccessiblePath(t *testing.T) {
 	require.NoError(t, os.Mkdir(subDir, 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(subDir, "hidden.jsonl"), []byte(`{}`), 0644))
 	require.NoError(t, os.Chmod(subDir, 0000))
-	t.Cleanup(func() { os.Chmod(subDir, 0755) })
+	t.Cleanup(func() { _ = os.Chmod(subDir, 0755) })
 
 	files, err := ScanDirectory(tmpDir)
 	require.NoError(t, err)
@@ -363,17 +363,17 @@ func TestParseFile_ScannerError(t *testing.T) {
 	require.NoError(t, err)
 
 	// Write a valid short line first
-	fmt.Fprintln(f, `{"sessionId":"sess-huge","uuid":"msg-h1","timestamp":"2026-03-01T10:00:00.000Z","type":"user","message":{"role":"user","content":[{"type":"text","text":"ok"}]}}`)
+	_, _ = fmt.Fprintln(f, `{"sessionId":"sess-huge","uuid":"msg-h1","timestamp":"2026-03-01T10:00:00.000Z","type":"user","message":{"role":"user","content":[{"type":"text","text":"ok"}]}}`)
 
 	// Write a line >10MB (no newline until after 11MB)
-	f.WriteString(`{"sessionId":"sess-huge","uuid":"msg-h2","timestamp":"2026-03-01T10:00:00.000Z","type":"user","message":{"role":"user","content":[{"type":"text","text":"`)
+	_, _ = f.WriteString(`{"sessionId":"sess-huge","uuid":"msg-h2","timestamp":"2026-03-01T10:00:00.000Z","type":"user","message":{"role":"user","content":[{"type":"text","text":"`)
 	buf := make([]byte, 11*1024*1024)
 	for i := range buf {
 		buf[i] = 'x'
 	}
-	f.Write(buf)
-	f.WriteString(`"}]}}` + "\n")
-	f.Close()
+	_, _ = f.Write(buf)
+	_, _ = f.WriteString(`"}]}}` + "\n")
+	_ = f.Close()
 
 	messages, err := ParseFile(fpath)
 	assert.Error(t, err)
@@ -386,7 +386,7 @@ func TestScanDirectory_SkipsSubagents(t *testing.T) {
 	// Create a temp directory with a subagents/ subdir
 	tmpDir, err := os.MkdirTemp("", "claude-stats-test-*")
 	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+	defer os.RemoveAll(tmpDir) //nolint:errcheck
 
 	// Create a regular session file
 	err = os.WriteFile(filepath.Join(tmpDir, "session1.jsonl"), []byte(`{}`), 0644)
