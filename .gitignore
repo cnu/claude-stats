@@ -1,0 +1,8 @@
+/claude-stats
+*.db
+*.db-wal
+*.db-shm
+vendor/
+.claude-stats/
+dist/
+.cachebro/
