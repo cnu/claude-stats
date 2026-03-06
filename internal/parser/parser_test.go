@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -195,6 +196,190 @@ func TestScanDirectory(t *testing.T) {
 		assert.True(t, filepath.Ext(f.Path) == ".jsonl", "unexpected file: %s", f.Path)
 		assert.NotEmpty(t, f.SessionID)
 	}
+}
+
+func TestParseLine_StringContent(t *testing.T) {
+	// Older format where content is a plain string instead of array
+	data := []byte(`{"sessionId":"sess-1","uuid":"msg-str","timestamp":"2026-03-01T10:00:00.000Z","type":"user","message":{"role":"user","content":"just a plain string"}}`)
+
+	msg, err := ParseLine(data)
+	require.NoError(t, err)
+	require.NotNil(t, msg)
+	assert.Equal(t, "just a plain string", msg.ContentPreview)
+}
+
+func TestParseLine_NoTextContent(t *testing.T) {
+	// Message with only tool_use blocks, no text
+	data := []byte(`{"sessionId":"sess-1","uuid":"msg-notxt","timestamp":"2026-03-01T10:00:00.000Z","type":"assistant","message":{"model":"claude-sonnet-4-6-20250925","role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls"}}],"usage":{"input_tokens":100,"output_tokens":50}}}`)
+
+	msg, err := ParseLine(data)
+	require.NoError(t, err)
+	require.NotNil(t, msg)
+	assert.Empty(t, msg.ContentPreview)
+	require.Len(t, msg.ToolUses, 1)
+	assert.Equal(t, "Bash", msg.ToolUses[0].Name)
+}
+
+func TestParseLine_NoMessage(t *testing.T) {
+	// User type but missing message field entirely
+	data := []byte(`{"sessionId":"sess-1","uuid":"msg-nomsg","timestamp":"2026-03-01T10:00:00.000Z","type":"user"}`)
+
+	msg, err := ParseLine(data)
+	require.NoError(t, err)
+	require.NotNil(t, msg)
+	assert.Equal(t, "user", msg.Role)
+	assert.Empty(t, msg.ContentPreview)
+}
+
+func TestParseLine_DurationField(t *testing.T) {
+	data := []byte(`{"sessionId":"sess-1","uuid":"msg-dur","timestamp":"2026-03-01T10:00:00.000Z","type":"assistant","duration":1500,"message":{"model":"claude-sonnet-4-6-20250925","role":"assistant","content":[{"type":"text","text":"done"}],"usage":{"input_tokens":100,"output_tokens":50}}}`)
+
+	msg, err := ParseLine(data)
+	require.NoError(t, err)
+	require.NotNil(t, msg)
+	assert.Equal(t, int64(1500), msg.DurationMs)
+}
+
+func TestParseLine_MultipleToolUses(t *testing.T) {
+	data := []byte(`{"sessionId":"sess-1","uuid":"msg-multi","timestamp":"2026-03-01T10:00:00.000Z","type":"assistant","message":{"model":"claude-sonnet-4-6-20250925","role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"a.go"}},{"type":"tool_use","id":"t2","name":"Grep","input":{"pattern":"foo"}},{"type":"text","text":"Found it"}],"usage":{"input_tokens":100,"output_tokens":50}}}`)
+
+	msg, err := ParseLine(data)
+	require.NoError(t, err)
+	require.Len(t, msg.ToolUses, 2)
+	assert.Equal(t, "Read", msg.ToolUses[0].Name)
+	assert.Equal(t, "Grep", msg.ToolUses[1].Name)
+	assert.Equal(t, "Found it", msg.ContentPreview)
+}
+
+func TestParseLine_ToolUseNilInput(t *testing.T) {
+	data := []byte(`{"sessionId":"sess-1","uuid":"msg-nil","timestamp":"2026-03-01T10:00:00.000Z","type":"assistant","message":{"model":"claude-sonnet-4-6-20250925","role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash"}],"usage":{"input_tokens":100,"output_tokens":50}}}`)
+
+	msg, err := ParseLine(data)
+	require.NoError(t, err)
+	require.Len(t, msg.ToolUses, 1)
+	assert.Equal(t, "", msg.ToolUses[0].InputPreview)
+}
+
+func TestScanDirectory_NonExistent(t *testing.T) {
+	files, err := ScanDirectory("/nonexistent/path")
+	assert.NoError(t, err)
+	assert.Empty(t, files)
+}
+
+func TestScanDirectory_SkipsNonJsonl(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "claude-stats-ext-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "session.jsonl"), []byte(`{}`), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "notes.txt"), []byte("hello"), 0644))
+
+	files, err := ScanDirectory(tmpDir)
+	require.NoError(t, err)
+	assert.Len(t, files, 1)
+}
+
+func TestParseLine_AlternateTimestamp(t *testing.T) {
+	// Timestamp without fractional seconds
+	data := []byte(`{"sessionId":"sess-1","uuid":"msg-alt","timestamp":"2026-03-01T10:00:00Z","type":"user","message":{"role":"user","content":[{"type":"text","text":"alt ts"}]}}`)
+
+	msg, err := ParseLine(data)
+	require.NoError(t, err)
+	require.NotNil(t, msg)
+	assert.Equal(t, "alt ts", msg.ContentPreview)
+}
+
+func TestParseLine_InvalidTimestamp(t *testing.T) {
+	data := []byte(`{"sessionId":"sess-1","uuid":"msg-badts","timestamp":"not-a-date","type":"user","message":{"role":"user","content":[{"type":"text","text":"hi"}]}}`)
+
+	msg, err := ParseLine(data)
+	assert.Error(t, err)
+	assert.Nil(t, msg)
+	assert.Contains(t, err.Error(), "parse timestamp")
+}
+
+func TestParseLine_LongToolInputPreview(t *testing.T) {
+	// Tool input that exceeds 200 chars when serialized
+	longValue := ""
+	for i := 0; i < 250; i++ {
+		longValue += "a"
+	}
+	data := []byte(`{"sessionId":"sess-1","uuid":"msg-longtool","timestamp":"2026-03-01T10:00:00.000Z","type":"assistant","message":{"model":"claude-sonnet-4-6-20250925","role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Write","input":{"content":"` + longValue + `"}}],"usage":{"input_tokens":100,"output_tokens":50}}}`)
+
+	msg, err := ParseLine(data)
+	require.NoError(t, err)
+	require.Len(t, msg.ToolUses, 1)
+	assert.Len(t, msg.ToolUses[0].InputPreview, 200)
+}
+
+func TestFlexContent_InvalidType(t *testing.T) {
+	// Content that is neither string nor array (e.g., a number)
+	data := []byte(`{"sessionId":"sess-1","uuid":"msg-badcontent","timestamp":"2026-03-01T10:00:00.000Z","type":"user","message":{"role":"user","content":12345}}`)
+
+	msg, err := ParseLine(data)
+	require.NoError(t, err)
+	require.NotNil(t, msg)
+	assert.Empty(t, msg.ContentPreview)
+}
+
+func TestFlexContent_NullContent(t *testing.T) {
+	data := []byte(`{"sessionId":"sess-1","uuid":"msg-null","timestamp":"2026-03-01T10:00:00.000Z","type":"user","message":{"role":"user","content":null}}`)
+
+	msg, err := ParseLine(data)
+	require.NoError(t, err)
+	require.NotNil(t, msg)
+	assert.Empty(t, msg.ContentPreview)
+}
+
+func TestScanDirectory_InaccessiblePath(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("test requires non-root user")
+	}
+
+	tmpDir := t.TempDir()
+
+	// Create an accessible file
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "good.jsonl"), []byte(`{}`), 0644))
+
+	// Create a subdirectory with a jsonl file, then make it inaccessible
+	subDir := filepath.Join(tmpDir, "blocked")
+	require.NoError(t, os.Mkdir(subDir, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(subDir, "hidden.jsonl"), []byte(`{}`), 0644))
+	require.NoError(t, os.Chmod(subDir, 0000))
+	t.Cleanup(func() { os.Chmod(subDir, 0755) })
+
+	files, err := ScanDirectory(tmpDir)
+	require.NoError(t, err)
+	assert.Len(t, files, 1) // Should skip inaccessible dir without error
+	assert.Equal(t, "good", files[0].SessionID)
+}
+
+func TestParseFile_ScannerError(t *testing.T) {
+	// Create a file with a single line exceeding the 10MB scanner buffer
+	tmpDir := t.TempDir()
+	fpath := filepath.Join(tmpDir, "huge.jsonl")
+
+	f, err := os.Create(fpath)
+	require.NoError(t, err)
+
+	// Write a valid short line first
+	fmt.Fprintln(f, `{"sessionId":"sess-huge","uuid":"msg-h1","timestamp":"2026-03-01T10:00:00.000Z","type":"user","message":{"role":"user","content":[{"type":"text","text":"ok"}]}}`)
+
+	// Write a line >10MB (no newline until after 11MB)
+	f.WriteString(`{"sessionId":"sess-huge","uuid":"msg-h2","timestamp":"2026-03-01T10:00:00.000Z","type":"user","message":{"role":"user","content":[{"type":"text","text":"`)
+	buf := make([]byte, 11*1024*1024)
+	for i := range buf {
+		buf[i] = 'x'
+	}
+	f.Write(buf)
+	f.WriteString(`"}]}}` + "\n")
+	f.Close()
+
+	messages, err := ParseFile(fpath)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "scan file")
+	// Should still return the first valid message parsed before the error
+	assert.Len(t, messages, 1)
 }
 
 func TestScanDirectory_SkipsSubagents(t *testing.T) {

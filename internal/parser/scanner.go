@@ -1,7 +1,6 @@
 package parser
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,26 +11,31 @@ import (
 func ScanDirectory(dir string) ([]SessionFile, error) {
 	var files []SessionFile
 
-	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil // Skip inaccessible paths
 		}
 
 		// Skip subagents directories
-		if info.IsDir() && info.Name() == "subagents" {
+		if d.IsDir() && d.Name() == "subagents" {
 			return filepath.SkipDir
 		}
 
-		if info.IsDir() {
+		if d.IsDir() {
 			return nil
 		}
 
-		if !strings.HasSuffix(info.Name(), ".jsonl") {
+		if !strings.HasSuffix(d.Name(), ".jsonl") {
 			return nil
+		}
+
+		info, err := d.Info()
+		if err != nil {
+			return nil // Skip files we can't stat
 		}
 
 		// Derive session ID from filename (strip .jsonl)
-		sessionID := strings.TrimSuffix(info.Name(), ".jsonl")
+		sessionID := strings.TrimSuffix(d.Name(), ".jsonl")
 
 		files = append(files, SessionFile{
 			Path:      path,
@@ -42,10 +46,7 @@ func ScanDirectory(dir string) ([]SessionFile, error) {
 
 		return nil
 	})
-
-	if err != nil {
-		return nil, fmt.Errorf("walk directory %s: %w", dir, err)
-	}
+	_ = err // WalkDir only returns error if callback does; ours always returns nil
 
 	return files, nil
 }

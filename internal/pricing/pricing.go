@@ -1,9 +1,6 @@
 package pricing
 
-import (
-	"log/slog"
-	"strings"
-)
+import "log/slog"
 
 // ModelPricing holds per-model token pricing in USD per million tokens.
 type ModelPricing struct {
@@ -69,13 +66,6 @@ func LookupPricing(model string) ModelPricing {
 	// Try short name mapping
 	if fullName, ok := shortNameMap[model]; ok {
 		if p, ok := defaultPricing[fullName]; ok {
-			return p
-		}
-	}
-
-	// Try prefix matching for versioned models
-	for name, p := range defaultPricing {
-		if strings.HasPrefix(model, strings.TrimSuffix(name, name[strings.LastIndex(name, "-"):])) {
 			return p
 		}
 	}

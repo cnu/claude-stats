@@ -1,6 +1,9 @@
 package db
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -221,6 +224,225 @@ func TestExecuteQuery(t *testing.T) {
 	assert.Equal(t, []string{"cnt"}, result.Columns)
 	require.Len(t, result.Rows, 1)
 	assert.Equal(t, "0", result.Rows[0][0])
+}
+
+func TestIngestSession_EmptyMessages(t *testing.T) {
+	db, err := OpenMemory()
+	require.NoError(t, err)
+	defer db.Close()
+
+	sf := parser.SessionFile{Path: "/tmp/empty.jsonl", SessionID: "sess-empty"}
+	err = db.IngestSession(sf, nil)
+	require.NoError(t, err)
+
+	count, err := db.GetSessionCount()
+	require.NoError(t, err)
+	assert.Equal(t, 0, count)
+}
+
+func TestIngestSession_WithCostUSD(t *testing.T) {
+	db, err := OpenMemory()
+	require.NoError(t, err)
+	defer db.Close()
+
+	ts := time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC)
+	cost := 0.0042
+	messages := []parser.ParsedMessage{
+		{
+			SessionID: "sess-cost", UUID: "msg-c1", Timestamp: ts,
+			Role: "assistant", Model: "claude-sonnet-4-6-20250925",
+			CostUSD: &cost,
+			Usage:   parser.UsageStats{InputTokens: 100, OutputTokens: 50},
+		},
+	}
+	sf := parser.SessionFile{Path: "/tmp/cost.jsonl", SessionID: "sess-cost"}
+	err = db.IngestSession(sf, messages)
+	require.NoError(t, err)
+
+	// Should use the pre-calculated costUSD, not compute from tokens
+	var storedCost float64
+	err = db.conn.QueryRow("SELECT cost_usd FROM messages WHERE uuid = ?", "msg-c1").Scan(&storedCost)
+	require.NoError(t, err)
+	assert.InDelta(t, 0.0042, storedCost, 0.0001)
+}
+
+func TestIngestSession_MetadataFromLaterMessages(t *testing.T) {
+	db, err := OpenMemory()
+	require.NoError(t, err)
+	defer db.Close()
+
+	ts := time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC)
+	messages := []parser.ParsedMessage{
+		{SessionID: "sess-meta", UUID: "msg-m1", Timestamp: ts, Role: "user"},
+		{
+			SessionID: "sess-meta", UUID: "msg-m2", Timestamp: ts.Add(time.Second),
+			Role: "assistant", Model: "claude-sonnet-4-6-20250925",
+			CWD: "/Users/test/Projects/webapp", GitBranch: "feature-x", Version: "2.1.70",
+		},
+	}
+	sf := parser.SessionFile{Path: "/tmp/meta.jsonl", SessionID: "sess-meta"}
+	err = db.IngestSession(sf, messages)
+	require.NoError(t, err)
+
+	var projectName, gitBranch, version string
+	err = db.conn.QueryRow("SELECT project_name, git_branch, claude_version FROM sessions WHERE session_id = ?", "sess-meta").Scan(&projectName, &gitBranch, &version)
+	require.NoError(t, err)
+	assert.Equal(t, "Projects/webapp", projectName)
+	assert.Equal(t, "feature-x", gitBranch)
+	assert.Equal(t, "2.1.70", version)
+}
+
+func TestRebuildDailyStats_NilTimezone(t *testing.T) {
+	db, err := OpenMemory()
+	require.NoError(t, err)
+	defer db.Close()
+
+	// Should use local timezone and not panic
+	err = db.RebuildDailyStats(nil)
+	require.NoError(t, err)
+}
+
+func TestRebuildDailyStats_MultipleDays(t *testing.T) {
+	db, err := OpenMemory()
+	require.NoError(t, err)
+	defer db.Close()
+
+	day1 := time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC)
+	day2 := time.Date(2026, 3, 2, 14, 0, 0, 0, time.UTC)
+
+	msgs1 := []parser.ParsedMessage{
+		{SessionID: "sess-d1", UUID: "msg-dd1", Timestamp: day1, Role: "user"},
+		{SessionID: "sess-d1", UUID: "msg-dd2", Timestamp: day1.Add(time.Second), Role: "assistant", Model: "claude-sonnet-4-6-20250925", Usage: parser.UsageStats{InputTokens: 500, OutputTokens: 100}},
+	}
+	msgs2 := []parser.ParsedMessage{
+		{SessionID: "sess-d2", UUID: "msg-dd3", Timestamp: day2, Role: "user"},
+		{SessionID: "sess-d2", UUID: "msg-dd4", Timestamp: day2.Add(time.Second), Role: "assistant", Model: "claude-opus-4-6-20250918", Usage: parser.UsageStats{InputTokens: 1000, OutputTokens: 200}},
+	}
+
+	require.NoError(t, db.IngestSession(parser.SessionFile{Path: "/tmp/d1.jsonl", SessionID: "sess-d1"}, msgs1))
+	require.NoError(t, db.IngestSession(parser.SessionFile{Path: "/tmp/d2.jsonl", SessionID: "sess-d2"}, msgs2))
+	require.NoError(t, db.RebuildDailyStats(time.UTC))
+
+	var count int
+	err = db.conn.QueryRow("SELECT COUNT(*) FROM daily_stats").Scan(&count)
+	require.NoError(t, err)
+	assert.Equal(t, 2, count)
+
+	// Check models_used is populated
+	var modelsUsed string
+	err = db.conn.QueryRow("SELECT models_used FROM daily_stats WHERE date_key = '2026-03-02'").Scan(&modelsUsed)
+	require.NoError(t, err)
+	assert.Contains(t, modelsUsed, "claude-opus-4-6-20250918")
+}
+
+func TestExecuteQuery_WithData(t *testing.T) {
+	db, err := OpenMemory()
+	require.NoError(t, err)
+	defer db.Close()
+
+	ts := time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC)
+	msgs := []parser.ParsedMessage{
+		{SessionID: "sess-q", UUID: "msg-q1", Timestamp: ts, Role: "user", ContentPreview: "test"},
+		{SessionID: "sess-q", UUID: "msg-q2", Timestamp: ts.Add(time.Second), Role: "assistant", Model: "claude-sonnet-4-6-20250925"},
+	}
+	require.NoError(t, db.IngestSession(parser.SessionFile{Path: "/tmp/q.jsonl", SessionID: "sess-q"}, msgs))
+
+	result, err := db.ExecuteQuery("SELECT role, COUNT(*) as cnt FROM messages GROUP BY role ORDER BY role", 20)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"role", "cnt"}, result.Columns)
+	assert.Len(t, result.Rows, 2)
+}
+
+func TestExecuteQuery_Limit(t *testing.T) {
+	db, err := OpenMemory()
+	require.NoError(t, err)
+	defer db.Close()
+
+	ts := time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC)
+	var msgs []parser.ParsedMessage
+	for i := 0; i < 10; i++ {
+		msgs = append(msgs, parser.ParsedMessage{
+			SessionID: "sess-lim", UUID: fmt.Sprintf("msg-lim-%d", i),
+			Timestamp: ts.Add(time.Duration(i) * time.Second), Role: "user",
+		})
+	}
+	require.NoError(t, db.IngestSession(parser.SessionFile{Path: "/tmp/lim.jsonl", SessionID: "sess-lim"}, msgs))
+
+	result, err := db.ExecuteQuery("SELECT uuid FROM messages", 3)
+	require.NoError(t, err)
+	assert.Len(t, result.Rows, 3)
+}
+
+func TestExecuteQuery_InvalidSQL(t *testing.T) {
+	db, err := OpenMemory()
+	require.NoError(t, err)
+	defer db.Close()
+
+	_, err = db.ExecuteQuery("SELECT * FROM nonexistent_table", 20)
+	assert.Error(t, err)
+}
+
+func TestExecuteQuery_DefaultLimit(t *testing.T) {
+	db, err := OpenMemory()
+	require.NoError(t, err)
+	defer db.Close()
+
+	result, err := db.ExecuteQuery("SELECT 1 as val", 0)
+	require.NoError(t, err)
+	assert.Len(t, result.Rows, 1)
+}
+
+func TestFormatValue(t *testing.T) {
+	assert.Equal(t, "NULL", formatValue(nil))
+	assert.Equal(t, "hello", formatValue([]byte("hello")))
+	assert.Equal(t, "42", formatValue(42))
+	assert.Equal(t, "3.14", formatValue(3.14))
+}
+
+func TestGetTotalCost_Empty(t *testing.T) {
+	db, err := OpenMemory()
+	require.NoError(t, err)
+	defer db.Close()
+
+	cost, err := db.GetTotalCost()
+	require.NoError(t, err)
+	assert.Equal(t, 0.0, cost)
+}
+
+func TestCheckFileState_ChangedMtime(t *testing.T) {
+	db, err := OpenMemory()
+	require.NoError(t, err)
+	defer db.Close()
+
+	now := time.Now()
+	require.NoError(t, db.UpdateIngestMeta("/tmp/test.jsonl", 1024, now, 50))
+
+	// Same size, different mtime
+	needs, err := db.CheckFileState("/tmp/test.jsonl", 1024, now.Add(time.Hour))
+	require.NoError(t, err)
+	assert.True(t, needs)
+}
+
+func TestOpen_FileDB(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "subdir", "test.db")
+
+	db, err := Open(dbPath)
+	require.NoError(t, err)
+	defer db.Close()
+
+	// Verify it created the directory and DB
+	_, err = os.Stat(dbPath)
+	require.NoError(t, err)
+
+	// Verify Conn() works
+	assert.NotNil(t, db.Conn())
+
+	// Verify schema is applied
+	var version int
+	err = db.Conn().QueryRow("SELECT MAX(version) FROM schema_version").Scan(&version)
+	require.NoError(t, err)
+	assert.Equal(t, 1, version)
 }
 
 func TestExtractProjectName(t *testing.T) {
