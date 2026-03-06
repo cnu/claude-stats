@@ -6,3 +6,4 @@ vendor/
 .claude-stats/
 dist/
 .cachebro/
+claude-stats-requirements.md
