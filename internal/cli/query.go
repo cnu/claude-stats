@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/cnu/claude-stats/internal/db"
+	"github.com/cnu/claude-stats/internal/nlquery"
 	"github.com/spf13/cobra"
 )
 
@@ -42,14 +43,23 @@ func runQuery(cmd *cobra.Command, args []string) error {
 
 	query := args[0]
 
-	if !querySQL {
-		// TODO: NL query engine (Phase 4)
-		return fmt.Errorf("natural language queries not yet implemented. Use --sql flag for raw SQL queries")
-	}
+	var result *db.QueryResult
 
-	result, err := database.ExecuteQuery(query, queryLimit)
-	if err != nil {
-		return fmt.Errorf("execute query: %w", err)
+	if !querySQL {
+		engine := nlquery.New(database)
+		var sql string
+		result, sql, err = engine.Query(query)
+		if err != nil {
+			return fmt.Errorf("query: %w", err)
+		}
+		if verbose {
+			fmt.Fprintf(os.Stderr, "SQL: %s\n\n", sql)
+		}
+	} else {
+		result, err = database.ExecuteQuery(query, queryLimit)
+		if err != nil {
+			return fmt.Errorf("execute query: %w", err)
+		}
 	}
 
 	switch queryFormat {
