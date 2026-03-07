@@ -210,6 +210,113 @@ func (db *DB) IngestSession(sessionFile parser.SessionFile, messages []parser.Pa
 	return tx.Commit()
 }
 
+// IngestSubagent appends subagent messages to an existing parent session.
+// It inserts messages and tool uses, then updates the session aggregates.
+func (db *DB) IngestSubagent(sessionFile parser.SessionFile, messages []parser.ParsedMessage) error {
+	if len(messages) == 0 {
+		return nil
+	}
+
+	sessionID := sessionFile.SessionID
+
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	// Ensure parent session exists (it may not if subagent is processed before main file)
+	var exists int
+	if err := tx.QueryRow("SELECT COUNT(*) FROM sessions WHERE session_id = ?", sessionID).Scan(&exists); err != nil {
+		return fmt.Errorf("check parent session: %w", err)
+	}
+	if exists == 0 {
+		// Create a placeholder session — will be updated when main file is ingested
+		if _, err := tx.Exec("INSERT INTO sessions (session_id, file_path) VALUES (?, ?)",
+			sessionID, sessionFile.Path); err != nil {
+			return fmt.Errorf("insert placeholder session: %w", err)
+		}
+	}
+
+	// Delete previously ingested messages from this subagent file to allow re-ingestion.
+	// We use a prefix match on the UUID to identify subagent messages by their source file.
+	// Instead, just delete by matching the subagent file path in ingest_meta and re-insert.
+	// Since subagent UUIDs are unique, INSERT OR IGNORE handles duplicates.
+
+	msgStmt, err := tx.Prepare(`
+		INSERT OR IGNORE INTO messages (uuid, session_id, parent_uuid, timestamp, role, model,
+			input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens,
+			cost_usd, duration_ms, content_preview)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return fmt.Errorf("prepare message insert: %w", err)
+	}
+	defer msgStmt.Close() //nolint:errcheck
+
+	toolStmt, err := tx.Prepare(`
+		INSERT OR IGNORE INTO tool_uses (message_uuid, session_id, tool_name, tool_input_preview, timestamp)
+		VALUES (?, ?, ?, ?, ?)`)
+	if err != nil {
+		return fmt.Errorf("prepare tool_use insert: %w", err)
+	}
+	defer toolStmt.Close() //nolint:errcheck
+
+	for _, msg := range messages {
+		tsMs := msg.Timestamp.UnixMilli()
+
+		var costUSD float64
+		if msg.CostUSD != nil {
+			costUSD = *msg.CostUSD
+		} else if msg.Role == "assistant" {
+			costUSD = pricing.CalculateCost(
+				msg.Model,
+				msg.Usage.InputTokens,
+				msg.Usage.OutputTokens,
+				msg.Usage.CacheCreationInputTokens,
+				msg.Usage.CacheReadInputTokens,
+			)
+		}
+
+		if _, err := msgStmt.Exec(
+			msg.UUID, sessionID, msg.ParentUUID, tsMs, msg.Role, msg.Model,
+			msg.Usage.InputTokens, msg.Usage.OutputTokens,
+			msg.Usage.CacheCreationInputTokens, msg.Usage.CacheReadInputTokens,
+			costUSD, msg.DurationMs, msg.ContentPreview,
+		); err != nil {
+			return fmt.Errorf("insert subagent message %s: %w", msg.UUID, err)
+		}
+
+		for _, tu := range msg.ToolUses {
+			if _, err := toolStmt.Exec(msg.UUID, sessionID, tu.Name, tu.InputPreview, tsMs); err != nil {
+				return fmt.Errorf("insert subagent tool_use: %w", err)
+			}
+		}
+	}
+
+	// Update session aggregates from all messages (main + subagent)
+	if _, err := tx.Exec(`
+		UPDATE sessions SET
+			message_count = (SELECT COUNT(*) FROM messages WHERE session_id = ?),
+			user_message_count = (SELECT COUNT(*) FROM messages WHERE session_id = ? AND role = 'user'),
+			assistant_message_count = (SELECT COUNT(*) FROM messages WHERE session_id = ? AND role = 'assistant'),
+			total_input_tokens = (SELECT COALESCE(SUM(input_tokens), 0) FROM messages WHERE session_id = ?),
+			total_output_tokens = (SELECT COALESCE(SUM(output_tokens), 0) FROM messages WHERE session_id = ?),
+			total_cache_create_tokens = (SELECT COALESCE(SUM(cache_creation_input_tokens), 0) FROM messages WHERE session_id = ?),
+			total_cache_read_tokens = (SELECT COALESCE(SUM(cache_read_input_tokens), 0) FROM messages WHERE session_id = ?),
+			total_cost_usd = (SELECT COALESCE(SUM(cost_usd), 0) FROM messages WHERE session_id = ?),
+			last_message_at = (SELECT MAX(timestamp) FROM messages WHERE session_id = ?),
+			total_duration_ms = (SELECT MAX(timestamp) - MIN(timestamp) FROM messages WHERE session_id = ?)
+		WHERE session_id = ?`,
+		sessionID, sessionID, sessionID, sessionID, sessionID,
+		sessionID, sessionID, sessionID, sessionID, sessionID,
+		sessionID,
+	); err != nil {
+		return fmt.Errorf("update session aggregates: %w", err)
+	}
+
+	return tx.Commit()
+}
+
 // RebuildDailyStats rebuilds the daily_stats table from messages data.
 func (db *DB) RebuildDailyStats(tz *time.Location) error {
 	if tz == nil {

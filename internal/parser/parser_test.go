@@ -382,24 +382,45 @@ func TestParseFile_ScannerError(t *testing.T) {
 	assert.Len(t, messages, 1)
 }
 
-func TestScanDirectory_SkipsSubagents(t *testing.T) {
-	// Create a temp directory with a subagents/ subdir
+func TestScanDirectory_IncludesSubagents(t *testing.T) {
+	// Create a temp directory structure: project/session1.jsonl + project/session1/subagents/agent1.jsonl
 	tmpDir, err := os.MkdirTemp("", "claude-stats-test-*")
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir) //nolint:errcheck
 
+	// Create project dir
+	projDir := filepath.Join(tmpDir, "myproject")
+	require.NoError(t, os.Mkdir(projDir, 0755))
+
 	// Create a regular session file
-	err = os.WriteFile(filepath.Join(tmpDir, "session1.jsonl"), []byte(`{}`), 0644)
+	err = os.WriteFile(filepath.Join(projDir, "session1.jsonl"), []byte(`{}`), 0644)
 	require.NoError(t, err)
 
-	// Create subagents directory with a file
-	subDir := filepath.Join(tmpDir, "subagents")
-	require.NoError(t, os.Mkdir(subDir, 0755))
-	err = os.WriteFile(filepath.Join(subDir, "agent1.jsonl"), []byte(`{}`), 0644)
+	// Create subagents directory under a session dir
+	sessDir := filepath.Join(projDir, "session1", "subagents")
+	require.NoError(t, os.MkdirAll(sessDir, 0755))
+	err = os.WriteFile(filepath.Join(sessDir, "agent1.jsonl"), []byte(`{}`), 0644)
 	require.NoError(t, err)
 
 	files, err := ScanDirectory(tmpDir)
 	require.NoError(t, err)
-	assert.Len(t, files, 1)
-	assert.Equal(t, "session1", files[0].SessionID)
+	assert.Len(t, files, 2)
+
+	// Find main and subagent files
+	var mainFile, subagentFile *SessionFile
+	for i := range files {
+		if files[i].IsSubagent {
+			subagentFile = &files[i]
+		} else {
+			mainFile = &files[i]
+		}
+	}
+
+	require.NotNil(t, mainFile)
+	assert.Equal(t, "session1", mainFile.SessionID)
+	assert.False(t, mainFile.IsSubagent)
+
+	require.NotNil(t, subagentFile)
+	assert.Equal(t, "session1", subagentFile.SessionID) // Gets parent session ID
+	assert.True(t, subagentFile.IsSubagent)
 }

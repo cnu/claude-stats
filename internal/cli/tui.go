@@ -61,8 +61,14 @@ func quickIngest(database *db.DB) {
 			continue
 		}
 
-		if err := database.IngestSession(sf, messages); err != nil {
-			continue
+		if sf.IsSubagent {
+			if err := database.IngestSubagent(sf, messages); err != nil {
+				continue
+			}
+		} else {
+			if err := database.IngestSession(sf, messages); err != nil {
+				continue
+			}
 		}
 
 		_ = database.UpdateIngestMeta(sf.Path, sf.Size, sf.ModTime, len(messages))
@@ -72,6 +78,6 @@ func quickIngest(database *db.DB) {
 	if ingested > 0 {
 		tz := getTimezone()
 		_ = database.RebuildDailyStats(tz)
-		fmt.Printf("Ingested %d new sessions\n", ingested)
+		fmt.Printf("Ingested %d new/updated files\n", ingested)
 	}
 }

@@ -118,5 +118,6 @@ type SessionFile struct {
 	Path      string
 	Size      int64
 	ModTime   time.Time
-	SessionID string // Derived from filename
+	SessionID string // Derived from filename (or parent dir for subagents)
+	IsSubagent bool  // True if this file is from a subagents/ directory
 }
