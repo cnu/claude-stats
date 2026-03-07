@@ -36,6 +36,12 @@ var defaultPricing = map[string]ModelPricing{
 		CacheWritePerMTok: 18.75,
 		CacheReadPerMTok:  1.5,
 	},
+	"claude-sonnet-4-5-20250929": {
+		InputPerMTok:      3.0,
+		OutputPerMTok:     15.0,
+		CacheWritePerMTok: 3.75,
+		CacheReadPerMTok:  0.30,
+	},
 	"claude-haiku-4-5-20251001": {
 		InputPerMTok:      0.80,
 		OutputPerMTok:     4.0,
@@ -49,15 +55,26 @@ var shortNameMap = map[string]string{
 	"claude-opus-4-6":   "claude-opus-4-6-20250918",
 	"claude-sonnet-4-6": "claude-sonnet-4-6-20250925",
 	"claude-haiku-4-5":  "claude-haiku-4-5-20251001",
+	"claude-sonnet-4-5": "claude-sonnet-4-5-20250929",
 	"claude-opus-4":     "claude-opus-4-20250514",
 	"claude-sonnet-4":   "claude-sonnet-4-20250514",
 }
 
 const fallbackModel = "claude-sonnet-4-20250514"
 
+// zeroCostModels are synthetic or internal model names that have no real API cost.
+var zeroCostModels = map[string]bool{
+	"<synthetic>": true,
+}
+
 // LookupPricing returns the pricing for a given model name.
 // Falls back to Sonnet pricing for unknown models.
 func LookupPricing(model string) ModelPricing {
+	// Zero-cost synthetic models
+	if zeroCostModels[model] {
+		return ModelPricing{}
+	}
+
 	// Direct match
 	if p, ok := defaultPricing[model]; ok {
 		return p
