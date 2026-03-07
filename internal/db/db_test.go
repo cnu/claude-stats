@@ -809,3 +809,124 @@ func TestGetCacheEfficiency_Empty(t *testing.T) {
 	assert.Equal(t, int64(0), c.TotalCacheRead)
 	assert.Equal(t, 0.0, c.HitRatio)
 }
+
+// Phase 4 tests
+
+func TestGetProjectList_SortByCost(t *testing.T) {
+	db, err := OpenMemory()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck
+	setupTestSessions(t, db)
+
+	entries, err := db.GetProjectList("cost")
+	require.NoError(t, err)
+	require.Len(t, entries, 2)
+	// webapp has higher cost (opus sessions) than cli-tool
+	assert.Equal(t, "Projects/webapp", entries[0].ProjectName)
+	assert.Equal(t, 2, entries[0].SessionCount)
+	assert.Equal(t, 6, entries[0].TotalMessages) // 2 + 4 messages
+	assert.Greater(t, entries[0].TotalCost, entries[1].TotalCost)
+	assert.Equal(t, "Projects/cli-tool", entries[1].ProjectName)
+	assert.Equal(t, 1, entries[1].SessionCount)
+}
+
+func TestGetProjectList_SortBySessions(t *testing.T) {
+	db, err := OpenMemory()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck
+	setupTestSessions(t, db)
+
+	entries, err := db.GetProjectList("sessions")
+	require.NoError(t, err)
+	require.Len(t, entries, 2)
+	// webapp has 2 sessions, cli-tool has 1
+	assert.Equal(t, "Projects/webapp", entries[0].ProjectName)
+}
+
+func TestGetProjectList_SortByName(t *testing.T) {
+	db, err := OpenMemory()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck
+	setupTestSessions(t, db)
+
+	entries, err := db.GetProjectList("name")
+	require.NoError(t, err)
+	require.Len(t, entries, 2)
+	// Alphabetical: cli-tool before webapp
+	assert.Equal(t, "Projects/cli-tool", entries[0].ProjectName)
+	assert.Equal(t, "Projects/webapp", entries[1].ProjectName)
+}
+
+func TestGetProjectList_Empty(t *testing.T) {
+	db, err := OpenMemory()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck
+
+	entries, err := db.GetProjectList("cost")
+	require.NoError(t, err)
+	assert.Empty(t, entries)
+}
+
+func TestGetProjectSessions(t *testing.T) {
+	db, err := OpenMemory()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck
+	setupTestSessions(t, db)
+
+	entries, err := db.GetProjectSessions("Projects/webapp", 100)
+	require.NoError(t, err)
+	require.Len(t, entries, 2)
+	// Most recent first
+	assert.Equal(t, "sess-2", entries[0].SessionID)
+	assert.Equal(t, "sess-1", entries[1].SessionID)
+}
+
+func TestGetProjectSessions_Empty(t *testing.T) {
+	db, err := OpenMemory()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck
+	setupTestSessions(t, db)
+
+	entries, err := db.GetProjectSessions("nonexistent", 100)
+	require.NoError(t, err)
+	assert.Empty(t, entries)
+}
+
+func TestGetHeatmapData(t *testing.T) {
+	db, err := OpenMemory()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck
+	setupTestSessions(t, db)
+
+	cells, err := db.GetHeatmapData()
+	require.NoError(t, err)
+	assert.NotEmpty(t, cells)
+
+	// Verify structure: all cells have valid dow (0-6) and hour (0-23)
+	for _, c := range cells {
+		assert.GreaterOrEqual(t, c.DayOfWeek, 0)
+		assert.LessOrEqual(t, c.DayOfWeek, 6)
+		assert.GreaterOrEqual(t, c.Hour, 0)
+		assert.LessOrEqual(t, c.Hour, 23)
+		assert.Greater(t, c.MessageCount, 0)
+	}
+
+	// Total messages across all cells should equal total messages in DB
+	totalMsgs := 0
+	for _, c := range cells {
+		totalMsgs += c.MessageCount
+	}
+	msgCount, err := db.GetMessageCount()
+	require.NoError(t, err)
+	assert.Equal(t, msgCount, totalMsgs)
+}
+
+func TestGetHeatmapData_Empty(t *testing.T) {
+	db, err := OpenMemory()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck
+
+	cells, err := db.GetHeatmapData()
+	require.NoError(t, err)
+	assert.Empty(t, cells)
+}

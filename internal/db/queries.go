@@ -487,6 +487,120 @@ func (db *DB) GetCostByProject() ([]ProjectCostEntry, error) {
 	return entries, rows.Err()
 }
 
+// ProjectListEntry represents a project with aggregated stats.
+type ProjectListEntry struct {
+	ProjectName  string
+	SessionCount int
+	TotalMessages int
+	TotalCost    float64
+	LastActiveAt int64
+	TopModel     string
+}
+
+// GetProjectList returns projects with aggregated stats.
+func (db *DB) GetProjectList(sortBy string) ([]ProjectListEntry, error) {
+	orderClause := "total_cost DESC"
+	switch sortBy {
+	case "sessions":
+		orderClause = "session_count DESC"
+	case "name":
+		orderClause = "project_name ASC"
+	case "recent":
+		orderClause = "last_active DESC"
+	}
+
+	rows, err := db.conn.Query(fmt.Sprintf(`
+		SELECT COALESCE(s.project_name, '(unknown)') AS project_name,
+			COUNT(*) AS session_count,
+			COALESCE(SUM(s.message_count), 0) AS total_messages,
+			COALESCE(SUM(s.total_cost_usd), 0) AS total_cost,
+			COALESCE(MAX(s.last_message_at), 0) AS last_active,
+			COALESCE((
+				SELECT m.model FROM messages m
+				WHERE m.session_id IN (SELECT s2.session_id FROM sessions s2 WHERE COALESCE(s2.project_name, '(unknown)') = COALESCE(s.project_name, '(unknown)'))
+				AND m.model != ''
+				GROUP BY m.model ORDER BY COUNT(*) DESC LIMIT 1
+			), '') AS top_model
+		FROM sessions s
+		GROUP BY COALESCE(s.project_name, '(unknown)')
+		ORDER BY %s`, orderClause))
+	if err != nil {
+		return nil, fmt.Errorf("query project list: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var entries []ProjectListEntry
+	for rows.Next() {
+		var e ProjectListEntry
+		if err := rows.Scan(&e.ProjectName, &e.SessionCount, &e.TotalMessages,
+			&e.TotalCost, &e.LastActiveAt, &e.TopModel); err != nil {
+			return nil, fmt.Errorf("scan project list: %w", err)
+		}
+		entries = append(entries, e)
+	}
+	return entries, rows.Err()
+}
+
+// GetProjectSessions returns sessions for a specific project.
+func (db *DB) GetProjectSessions(projectName string, limit int) ([]SessionListEntry, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := db.conn.Query(`
+		SELECT session_id, COALESCE(project_name, ''), COALESCE(first_message_at, 0),
+			COALESCE(message_count, 0), COALESCE(total_cost_usd, 0), COALESCE(total_duration_ms, 0)
+		FROM sessions WHERE COALESCE(project_name, '(unknown)') = ?
+		ORDER BY first_message_at DESC LIMIT ?`, projectName, limit)
+	if err != nil {
+		return nil, fmt.Errorf("query project sessions: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var entries []SessionListEntry
+	for rows.Next() {
+		var e SessionListEntry
+		if err := rows.Scan(&e.SessionID, &e.ProjectName, &e.FirstMsgAt,
+			&e.MessageCount, &e.CostUSD, &e.DurationMs); err != nil {
+			return nil, fmt.Errorf("scan project session: %w", err)
+		}
+		entries = append(entries, e)
+	}
+	return entries, rows.Err()
+}
+
+// HeatmapCell represents activity for one hour-of-day and day-of-week combination.
+type HeatmapCell struct {
+	DayOfWeek    int // 0=Sunday, 1=Monday, ..., 6=Saturday
+	Hour         int // 0-23
+	MessageCount int
+	Cost         float64
+}
+
+// GetHeatmapData returns message counts and costs grouped by day-of-week and hour.
+func (db *DB) GetHeatmapData() ([]HeatmapCell, error) {
+	rows, err := db.conn.Query(`
+		SELECT CAST(strftime('%w', timestamp/1000, 'unixepoch', 'localtime') AS INTEGER) AS dow,
+			CAST(strftime('%H', timestamp/1000, 'unixepoch', 'localtime') AS INTEGER) AS hour,
+			COUNT(*) AS msg_count,
+			COALESCE(SUM(cost_usd), 0) AS total_cost
+		FROM messages
+		GROUP BY dow, hour`)
+	if err != nil {
+		return nil, fmt.Errorf("query heatmap data: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var cells []HeatmapCell
+	for rows.Next() {
+		var c HeatmapCell
+		if err := rows.Scan(&c.DayOfWeek, &c.Hour, &c.MessageCount, &c.Cost); err != nil {
+			return nil, fmt.Errorf("scan heatmap cell: %w", err)
+		}
+		cells = append(cells, c)
+	}
+	return cells, rows.Err()
+}
+
 // CacheEfficiency holds aggregate cache statistics.
 type CacheEfficiency struct {
 	TotalCacheCreate int64
