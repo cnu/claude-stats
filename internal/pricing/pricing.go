@@ -42,6 +42,12 @@ var defaultPricing = map[string]ModelPricing{
 		CacheWritePerMTok: 3.75,
 		CacheReadPerMTok:  0.30,
 	},
+	"claude-opus-4-5-20251101": {
+		InputPerMTok:      15.0,
+		OutputPerMTok:     75.0,
+		CacheWritePerMTok: 18.75,
+		CacheReadPerMTok:  1.5,
+	},
 	"claude-haiku-4-5-20251001": {
 		InputPerMTok:      0.80,
 		OutputPerMTok:     4.0,
@@ -56,6 +62,7 @@ var shortNameMap = map[string]string{
 	"claude-sonnet-4-6": "claude-sonnet-4-6-20250925",
 	"claude-haiku-4-5":  "claude-haiku-4-5-20251001",
 	"claude-sonnet-4-5": "claude-sonnet-4-5-20250929",
+	"claude-opus-4-5":   "claude-opus-4-5-20251101",
 	"claude-opus-4":     "claude-opus-4-20250514",
 	"claude-sonnet-4":   "claude-sonnet-4-20250514",
 }
