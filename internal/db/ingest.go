@@ -80,7 +80,7 @@ func (db *DB) IngestSession(sessionFile parser.SessionFile, messages []parser.Pa
 
 	// Prepare statements
 	msgStmt, err := tx.Prepare(`
-		INSERT INTO messages (uuid, session_id, parent_uuid, timestamp, role, model,
+		INSERT OR REPLACE INTO messages (uuid, session_id, parent_uuid, timestamp, role, model,
 			input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens,
 			cost_usd, duration_ms, content_preview)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
