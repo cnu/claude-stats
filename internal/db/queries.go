@@ -244,10 +244,6 @@ type SessionListEntry struct {
 
 // GetSessionList returns sessions sorted by the given field.
 func (db *DB) GetSessionList(sortBy string, limit int) ([]SessionListEntry, error) {
-	if limit <= 0 {
-		limit = 200
-	}
-
 	orderClause := "first_message_at DESC"
 	switch sortBy {
 	case "cost":
@@ -256,10 +252,18 @@ func (db *DB) GetSessionList(sortBy string, limit int) ([]SessionListEntry, erro
 		orderClause = "message_count DESC"
 	}
 
-	rows, err := db.conn.Query(fmt.Sprintf(`
+	query := fmt.Sprintf(`
 		SELECT session_id, COALESCE(project_name, ''), COALESCE(first_message_at, 0),
 			COALESCE(message_count, 0), COALESCE(total_cost_usd, 0), COALESCE(total_duration_ms, 0)
-		FROM sessions ORDER BY %s LIMIT ?`, orderClause), limit)
+		FROM sessions ORDER BY %s`, orderClause)
+
+	var rows *sql.Rows
+	var err error
+	if limit > 0 {
+		rows, err = db.conn.Query(query+" LIMIT ?", limit)
+	} else {
+		rows, err = db.conn.Query(query)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("query session list: %w", err)
 	}

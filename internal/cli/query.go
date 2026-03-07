@@ -1,11 +1,8 @@
 package cli
 
 import (
-	"encoding/csv"
-	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/cnu/claude-stats/internal/db"
 	"github.com/cnu/claude-stats/internal/nlquery"
@@ -64,105 +61,10 @@ func runQuery(cmd *cobra.Command, args []string) error {
 
 	switch queryFormat {
 	case "json":
-		return outputJSON(result)
+		return formatJSON(os.Stdout, result)
 	case "csv":
-		return outputCSV(result)
+		return formatCSV(os.Stdout, result)
 	default:
-		return outputTable(result)
+		return formatTable(os.Stdout, result)
 	}
-}
-
-func outputTable(result *db.QueryResult) error {
-	if len(result.Rows) == 0 {
-		fmt.Println("No results.")
-		return nil
-	}
-
-	// Calculate column widths
-	widths := make([]int, len(result.Columns))
-	for i, col := range result.Columns {
-		widths[i] = len(col)
-	}
-	for _, row := range result.Rows {
-		for i, val := range row {
-			if len(val) > widths[i] {
-				widths[i] = len(val)
-			}
-		}
-	}
-
-	// Cap column widths at 50
-	for i := range widths {
-		if widths[i] > 50 {
-			widths[i] = 50
-		}
-	}
-
-	// Print header
-	var header strings.Builder
-	var separator strings.Builder
-	for i, col := range result.Columns {
-		if i > 0 {
-			header.WriteString(" | ")
-			separator.WriteString("-+-")
-		}
-		header.WriteString(padRight(col, widths[i]))
-		separator.WriteString(strings.Repeat("-", widths[i]))
-	}
-	fmt.Println(header.String())
-	fmt.Println(separator.String())
-
-	// Print rows
-	for _, row := range result.Rows {
-		var line strings.Builder
-		for i, val := range row {
-			if i > 0 {
-				line.WriteString(" | ")
-			}
-			if len(val) > widths[i] {
-				val = val[:widths[i]-3] + "..."
-			}
-			line.WriteString(padRight(val, widths[i]))
-		}
-		fmt.Println(line.String())
-	}
-
-	fmt.Printf("\n(%d rows)\n", len(result.Rows))
-	return nil
-}
-
-func outputJSON(result *db.QueryResult) error {
-	var rows []map[string]string
-	for _, row := range result.Rows {
-		m := make(map[string]string)
-		for i, col := range result.Columns {
-			m[col] = row[i]
-		}
-		rows = append(rows, m)
-	}
-
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	return enc.Encode(rows)
-}
-
-func outputCSV(result *db.QueryResult) error {
-	w := csv.NewWriter(os.Stdout)
-	if err := w.Write(result.Columns); err != nil {
-		return err
-	}
-	for _, row := range result.Rows {
-		if err := w.Write(row); err != nil {
-			return err
-		}
-	}
-	w.Flush()
-	return w.Error()
-}
-
-func padRight(s string, width int) string {
-	if len(s) >= width {
-		return s
-	}
-	return s + strings.Repeat(" ", width-len(s))
 }
