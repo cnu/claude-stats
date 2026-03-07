@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/cnu/claude-stats/internal/db"
+	"github.com/cnu/claude-stats/internal/nlquery"
 )
 
 // Tab represents a TUI tab.
@@ -41,24 +42,25 @@ type App struct {
 	height    int
 	showHelp  bool
 
-	dashboard    DashboardModel
-	sessions     SessionsModel
-	costs        CostsModel
-	placeholders [3]PlaceholderModel // Projects, Heatmap, Query
+	dashboard DashboardModel
+	sessions  SessionsModel
+	costs     CostsModel
+	projects  ProjectsModel
+	heatmap   HeatmapModel
+	query     QueryModel
 }
 
 // NewApp creates a new TUI app.
 func NewApp(database *db.DB) App {
+	nlEng := nlquery.New(database)
 	return App{
 		db:        database,
 		dashboard: NewDashboard(),
 		sessions:  NewSessions(database),
 		costs:     NewCosts(database),
-		placeholders: [3]PlaceholderModel{
-			NewPlaceholder("Projects"),
-			NewPlaceholder("Heatmap"),
-			NewPlaceholder("Query"),
-		},
+		projects:  NewProjects(database),
+		heatmap:   NewHeatmap(database),
+		query:     NewQuery(database, nlEng),
 	}
 }
 
@@ -71,6 +73,16 @@ func (a App) Init() tea.Cmd {
 func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// Query tab gets ALL keys when it has input (except ctrl+c)
+		if a.activeTab == TabQuery && a.query.HasInput() {
+			if msg.String() == "ctrl+c" {
+				return a, tea.Quit
+			}
+			var cmd tea.Cmd
+			a.query, cmd = a.query.Update(msg)
+			return a, cmd
+		}
+
 		// Global keys handled first
 		switch msg.String() {
 		case "q", "ctrl+c":
@@ -88,11 +100,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "3":
 			return a, a.switchToTab(TabCosts)
 		case "4":
-			a.activeTab = TabProjects
-			return a, nil
+			return a, a.switchToTab(TabProjects)
 		case "5":
-			a.activeTab = TabHeatmap
-			return a, nil
+			return a, a.switchToTab(TabHeatmap)
 		case "6":
 			a.activeTab = TabQuery
 			return a, nil
@@ -105,6 +115,12 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.sessions, cmd = a.sessions.Update(msg)
 		case TabCosts:
 			a.costs, cmd = a.costs.Update(msg)
+		case TabProjects:
+			a.projects, cmd = a.projects.Update(msg)
+		case TabHeatmap:
+			a.heatmap, cmd = a.heatmap.Update(msg)
+		case TabQuery:
+			a.query, cmd = a.query.Update(msg)
 		}
 		return a, cmd
 
@@ -115,9 +131,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.dashboard, _ = a.dashboard.Update(msg)
 		a.sessions, _ = a.sessions.Update(msg)
 		a.costs, _ = a.costs.Update(msg)
-		for i := range a.placeholders {
-			a.placeholders[i], _ = a.placeholders[i].Update(msg)
-		}
+		a.projects, _ = a.projects.Update(msg)
+		a.heatmap, _ = a.heatmap.Update(msg)
+		a.query, _ = a.query.Update(msg)
 		return a, nil
 
 	case DataLoadedMsg:
@@ -134,6 +150,22 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case CostsDataMsg:
 		a.costs, _ = a.costs.Update(msg)
+		return a, nil
+
+	case ProjectsDataMsg:
+		a.projects, _ = a.projects.Update(msg)
+		return a, nil
+
+	case ProjectDetailMsg:
+		a.projects, _ = a.projects.Update(msg)
+		return a, nil
+
+	case HeatmapDataMsg:
+		a.heatmap, _ = a.heatmap.Update(msg)
+		return a, nil
+
+	case QueryResultMsg:
+		a.query, _ = a.query.Update(msg)
 		return a, nil
 	}
 
@@ -153,6 +185,16 @@ func (a *App) switchToTab(tab Tab) tea.Cmd {
 			a.costs.loading = true
 			return a.costs.LoadCmd()
 		}
+	case TabProjects:
+		if !a.projects.loaded {
+			a.projects.loading = true
+			return a.projects.LoadCmd()
+		}
+	case TabHeatmap:
+		if !a.heatmap.loaded {
+			a.heatmap.loading = true
+			return a.heatmap.LoadCmd()
+		}
 	}
 	return nil
 }
@@ -170,6 +212,14 @@ func (a *App) refreshActiveTab() tea.Cmd {
 		a.costs.loading = true
 		a.costs.loaded = false
 		return a.costs.LoadCmd()
+	case TabProjects:
+		a.projects.loading = true
+		a.projects.loaded = false
+		return a.projects.LoadCmd()
+	case TabHeatmap:
+		a.heatmap.loading = true
+		a.heatmap.loaded = false
+		return a.heatmap.LoadCmd()
 	}
 	return nil
 }
@@ -192,11 +242,12 @@ func (a App) View() string {
 		b.WriteString(a.sessions.View())
 	case TabCosts:
 		b.WriteString(a.costs.View())
-	default:
-		idx := int(a.activeTab) - 3
-		if idx >= 0 && idx < len(a.placeholders) {
-			b.WriteString(a.placeholders[idx].View())
-		}
+	case TabProjects:
+		b.WriteString(a.projects.View())
+	case TabHeatmap:
+		b.WriteString(a.heatmap.View())
+	case TabQuery:
+		b.WriteString(a.query.View())
 	}
 
 	// Help overlay
@@ -233,6 +284,12 @@ func (a App) renderStatusBar() string {
 		base += "  │  j/k:navigate  enter:detail  s:sort  esc:back"
 	case TabCosts:
 		base += "  │  d/w/m:daily/weekly/monthly  j/k:scroll"
+	case TabProjects:
+		base += "  │  j/k:navigate  enter:detail  s:sort  esc:back"
+	case TabHeatmap:
+		base += "  │  t:toggle messages/cost"
+	case TabQuery:
+		base += "  │  enter:run  tab:NL/SQL  esc:clear  up/down:history"
 	}
 	return StatusBarStyle.Render(base)
 }
@@ -253,7 +310,22 @@ func (a App) renderHelp() string {
 
   Costs tab:
     d/w/m  Switch daily/weekly/monthly
-    j/k    Scroll content`
+    j/k    Scroll content
+
+  Projects tab:
+    j/k    Navigate projects
+    enter  View project sessions
+    s      Cycle sort (cost/sessions/name/recent)
+    esc    Back to list
+
+  Heatmap tab:
+    t      Toggle messages/cost view
+
+  Query tab:
+    enter  Run query
+    tab    Toggle NL/SQL mode
+    esc    Clear results/input
+    up/dn  Query history (when input empty)`
 	return CardStyle.Render(help)
 }
 

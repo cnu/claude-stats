@@ -34,4 +34,5 @@ var (
 	ColumnHeaderStyle  = lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary).Underline(true)
 	RoleUserStyle      = lipgloss.NewStyle().Foreground(ColorGreen)
 	RoleAssistantStyle = lipgloss.NewStyle().Foreground(ColorPrimary)
+	ErrorStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF6B6B"))
 )
