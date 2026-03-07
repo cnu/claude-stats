@@ -102,3 +102,132 @@ func (db *DB) GetTotalCost() (float64, error) {
 	}
 	return cost.Float64, nil
 }
+
+// DashboardSummary holds aggregate stats for the dashboard display.
+type DashboardSummary struct {
+	TotalSessions          int
+	TotalMessages          int
+	TotalInputTokens       int64
+	TotalOutputTokens      int64
+	TotalCacheCreateTokens int64
+	TotalCacheReadTokens   int64
+	TotalCost              float64
+	AvgDailyCost           float64
+	MostActiveProject      string
+	PrimaryModel           string
+}
+
+// GetDashboardSummary returns aggregate stats for the dashboard.
+func (db *DB) GetDashboardSummary() (*DashboardSummary, error) {
+	s := &DashboardSummary{}
+
+	err := db.conn.QueryRow(`
+		SELECT COUNT(*), COALESCE(SUM(message_count), 0),
+			COALESCE(SUM(total_input_tokens), 0), COALESCE(SUM(total_output_tokens), 0),
+			COALESCE(SUM(total_cache_create_tokens), 0), COALESCE(SUM(total_cache_read_tokens), 0),
+			COALESCE(SUM(total_cost_usd), 0)
+		FROM sessions`).Scan(
+		&s.TotalSessions, &s.TotalMessages,
+		&s.TotalInputTokens, &s.TotalOutputTokens,
+		&s.TotalCacheCreateTokens, &s.TotalCacheReadTokens,
+		&s.TotalCost,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query session totals: %w", err)
+	}
+
+	var avgCost sql.NullFloat64
+	_ = db.conn.QueryRow("SELECT AVG(total_cost_usd) FROM daily_stats").Scan(&avgCost)
+	if avgCost.Valid {
+		s.AvgDailyCost = avgCost.Float64
+	}
+
+	var project sql.NullString
+	_ = db.conn.QueryRow(`
+		SELECT project_name FROM sessions
+		WHERE project_name != ''
+		GROUP BY project_name ORDER BY COUNT(*) DESC LIMIT 1`).Scan(&project)
+	if project.Valid {
+		s.MostActiveProject = project.String
+	}
+
+	var model sql.NullString
+	_ = db.conn.QueryRow(`
+		SELECT model FROM messages
+		WHERE model != ''
+		GROUP BY model ORDER BY COUNT(*) DESC LIMIT 1`).Scan(&model)
+	if model.Valid {
+		s.PrimaryModel = model.String
+	}
+
+	return s, nil
+}
+
+// DailyCostEntry represents one day's cost for the bar chart.
+type DailyCostEntry struct {
+	Date string
+	Cost float64
+}
+
+// GetRecentDailyCosts returns cost per day for the last N days.
+func (db *DB) GetRecentDailyCosts(days int) ([]DailyCostEntry, error) {
+	rows, err := db.conn.Query(`
+		SELECT date_key, total_cost_usd FROM daily_stats
+		ORDER BY date_key DESC LIMIT ?`, days)
+	if err != nil {
+		return nil, fmt.Errorf("query daily costs: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var entries []DailyCostEntry
+	for rows.Next() {
+		var e DailyCostEntry
+		if err := rows.Scan(&e.Date, &e.Cost); err != nil {
+			return nil, fmt.Errorf("scan daily cost: %w", err)
+		}
+		entries = append(entries, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate daily costs: %w", err)
+	}
+
+	// Reverse to chronological order
+	for i, j := 0, len(entries)-1; i < j; i, j = i+1, j-1 {
+		entries[i], entries[j] = entries[j], entries[i]
+	}
+
+	return entries, nil
+}
+
+// ModelCostBreakdown represents cost by model.
+type ModelCostBreakdown struct {
+	Model        string
+	Cost         float64
+	MessageCount int
+}
+
+// GetModelCostBreakdown returns cost grouped by model.
+func (db *DB) GetModelCostBreakdown() ([]ModelCostBreakdown, error) {
+	rows, err := db.conn.Query(`
+		SELECT model, SUM(cost_usd) as total_cost, COUNT(*) as msg_count
+		FROM messages WHERE model != ''
+		GROUP BY model ORDER BY total_cost DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("query model breakdown: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var results []ModelCostBreakdown
+	for rows.Next() {
+		var m ModelCostBreakdown
+		if err := rows.Scan(&m.Model, &m.Cost, &m.MessageCount); err != nil {
+			return nil, fmt.Errorf("scan model breakdown: %w", err)
+		}
+		results = append(results, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate model breakdown: %w", err)
+	}
+
+	return results, nil
+}

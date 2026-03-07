@@ -32,6 +32,10 @@ var rootCmd = &cobra.Command{
 			slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})))
 		}
 	},
+	RunE: func(cmd *cobra.Command, args []string) error {
+		// Default to TUI when no subcommand given
+		return runTUI(cmd, args)
+	},
 }
 
 func init() {

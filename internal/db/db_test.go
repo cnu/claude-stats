@@ -460,3 +460,116 @@ func TestExtractProjectName(t *testing.T) {
 		assert.Equal(t, tt.expected, extractProjectName(tt.cwd), "cwd: %s", tt.cwd)
 	}
 }
+
+func TestGetDashboardSummary_Empty(t *testing.T) {
+	db, err := OpenMemory()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck
+
+	s, err := db.GetDashboardSummary()
+	require.NoError(t, err)
+	assert.Equal(t, 0, s.TotalSessions)
+	assert.Equal(t, 0, s.TotalMessages)
+	assert.Equal(t, 0.0, s.TotalCost)
+	assert.Empty(t, s.MostActiveProject)
+	assert.Empty(t, s.PrimaryModel)
+}
+
+func TestGetDashboardSummary_WithData(t *testing.T) {
+	db, err := OpenMemory()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck
+
+	ts := time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC)
+	msgs := []parser.ParsedMessage{
+		{SessionID: "sess-ds1", UUID: "msg-ds1", Timestamp: ts, Role: "user", CWD: "/home/user/Projects/webapp"},
+		{SessionID: "sess-ds1", UUID: "msg-ds2", Timestamp: ts.Add(time.Second), Role: "assistant", Model: "claude-sonnet-4-6-20250925",
+			Usage: parser.UsageStats{InputTokens: 1000, OutputTokens: 200}},
+	}
+	require.NoError(t, db.IngestSession(parser.SessionFile{Path: "/tmp/ds1.jsonl", SessionID: "sess-ds1"}, msgs))
+	require.NoError(t, db.RebuildDailyStats(time.UTC))
+
+	s, err := db.GetDashboardSummary()
+	require.NoError(t, err)
+	assert.Equal(t, 1, s.TotalSessions)
+	assert.Equal(t, 2, s.TotalMessages)
+	assert.Equal(t, int64(1000), s.TotalInputTokens)
+	assert.Equal(t, int64(200), s.TotalOutputTokens)
+	assert.Greater(t, s.TotalCost, 0.0)
+	assert.Greater(t, s.AvgDailyCost, 0.0)
+	assert.Equal(t, "Projects/webapp", s.MostActiveProject)
+	assert.Equal(t, "claude-sonnet-4-6-20250925", s.PrimaryModel)
+}
+
+func TestGetRecentDailyCosts(t *testing.T) {
+	db, err := OpenMemory()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck
+
+	day1 := time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC)
+	day2 := time.Date(2026, 3, 2, 14, 0, 0, 0, time.UTC)
+
+	msgs1 := []parser.ParsedMessage{
+		{SessionID: "sess-dc1", UUID: "msg-dc1", Timestamp: day1, Role: "user"},
+		{SessionID: "sess-dc1", UUID: "msg-dc2", Timestamp: day1.Add(time.Second), Role: "assistant", Model: "claude-sonnet-4-6-20250925", Usage: parser.UsageStats{InputTokens: 500, OutputTokens: 100}},
+	}
+	msgs2 := []parser.ParsedMessage{
+		{SessionID: "sess-dc2", UUID: "msg-dc3", Timestamp: day2, Role: "user"},
+		{SessionID: "sess-dc2", UUID: "msg-dc4", Timestamp: day2.Add(time.Second), Role: "assistant", Model: "claude-sonnet-4-6-20250925", Usage: parser.UsageStats{InputTokens: 1000, OutputTokens: 200}},
+	}
+
+	require.NoError(t, db.IngestSession(parser.SessionFile{Path: "/tmp/dc1.jsonl", SessionID: "sess-dc1"}, msgs1))
+	require.NoError(t, db.IngestSession(parser.SessionFile{Path: "/tmp/dc2.jsonl", SessionID: "sess-dc2"}, msgs2))
+	require.NoError(t, db.RebuildDailyStats(time.UTC))
+
+	entries, err := db.GetRecentDailyCosts(7)
+	require.NoError(t, err)
+	assert.Len(t, entries, 2)
+	// Should be in chronological order
+	assert.Equal(t, "2026-03-01", entries[0].Date)
+	assert.Equal(t, "2026-03-02", entries[1].Date)
+	assert.Greater(t, entries[1].Cost, entries[0].Cost)
+}
+
+func TestGetRecentDailyCosts_Empty(t *testing.T) {
+	db, err := OpenMemory()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck
+
+	entries, err := db.GetRecentDailyCosts(7)
+	require.NoError(t, err)
+	assert.Empty(t, entries)
+}
+
+func TestGetModelCostBreakdown(t *testing.T) {
+	db, err := OpenMemory()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck
+
+	ts := time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC)
+	msgs := []parser.ParsedMessage{
+		{SessionID: "sess-mb", UUID: "msg-mb1", Timestamp: ts, Role: "assistant", Model: "claude-sonnet-4-6-20250925",
+			Usage: parser.UsageStats{InputTokens: 1000, OutputTokens: 200}},
+		{SessionID: "sess-mb", UUID: "msg-mb2", Timestamp: ts.Add(time.Second), Role: "assistant", Model: "claude-opus-4-6-20250918",
+			Usage: parser.UsageStats{InputTokens: 500, OutputTokens: 100}},
+		{SessionID: "sess-mb", UUID: "msg-mb3", Timestamp: ts.Add(2 * time.Second), Role: "user"},
+	}
+	require.NoError(t, db.IngestSession(parser.SessionFile{Path: "/tmp/mb.jsonl", SessionID: "sess-mb"}, msgs))
+
+	results, err := db.GetModelCostBreakdown()
+	require.NoError(t, err)
+	assert.Len(t, results, 2)
+	// Opus should cost more than Sonnet for same tokens
+	assert.Equal(t, "claude-opus-4-6-20250918", results[0].Model)
+	assert.Greater(t, results[0].Cost, 0.0)
+}
+
+func TestGetModelCostBreakdown_Empty(t *testing.T) {
+	db, err := OpenMemory()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck
+
+	results, err := db.GetModelCostBreakdown()
+	require.NoError(t, err)
+	assert.Empty(t, results)
+}
