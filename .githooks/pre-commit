@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -e
+
+echo "==> Running go vet..."
+go vet ./...
+
+echo "==> Running tests..."
+go test ./... -race -count=1
+
+if command -v golangci-lint &>/dev/null; then
+    echo "==> Running golangci-lint..."
+    golangci-lint run ./...
+else
+    echo "==> golangci-lint not found, skipping (install: https://golangci-lint.run/welcome/install/)"
+fi
+
+echo "==> Pre-commit checks passed."

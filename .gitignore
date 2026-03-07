@@ -7,3 +7,4 @@ vendor/
 dist/
 .cachebro/
 claude-stats-requirements.md
+.vscode/
