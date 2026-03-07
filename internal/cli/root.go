@@ -41,11 +41,26 @@ var rootCmd = &cobra.Command{
 func init() {
 	home, _ := os.UserHomeDir()
 
-	rootCmd.PersistentFlags().StringVar(&dbPath, "db", filepath.Join(home, ".claude-stats", "claude-stats.db"), "SQLite database path")
-	rootCmd.PersistentFlags().StringVar(&claudeDir, "claude-dir", filepath.Join(home, ".claude", "projects"), "Claude data directory")
-	rootCmd.PersistentFlags().BoolVar(&verbose, "verbose", false, "Enable debug logging")
+	defaultDB := filepath.Join(home, ".claude-stats", "claude-stats.db")
+	defaultClaudeDir := filepath.Join(home, ".claude", "projects")
+	defaultTimezone := "Local"
+
+	// Allow env vars to override defaults
+	if v := os.Getenv("CLAUDE_STATS_DB"); v != "" {
+		defaultDB = v
+	}
+	if v := os.Getenv("CLAUDE_STATS_CLAUDE_DIR"); v != "" {
+		defaultClaudeDir = v
+	}
+	if v := os.Getenv("CLAUDE_STATS_TIMEZONE"); v != "" {
+		defaultTimezone = v
+	}
+
+	rootCmd.PersistentFlags().StringVar(&dbPath, "db", defaultDB, "SQLite database path")
+	rootCmd.PersistentFlags().StringVar(&claudeDir, "claude-dir", defaultClaudeDir, "Claude data directory")
+	rootCmd.PersistentFlags().BoolVar(&verbose, "verbose", os.Getenv("CLAUDE_STATS_VERBOSE") != "", "Enable debug logging")
 	rootCmd.PersistentFlags().BoolVar(&noColor, "no-color", false, "Disable color output")
-	rootCmd.PersistentFlags().StringVar(&timezone, "timezone", "Local", "Timezone for date grouping")
+	rootCmd.PersistentFlags().StringVar(&timezone, "timezone", defaultTimezone, "Timezone for date grouping")
 }
 
 // Execute runs the root command.
