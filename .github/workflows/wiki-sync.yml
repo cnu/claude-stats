@@ -1,0 +1,72 @@
+name: Sync docs to wiki
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+
+jobs:
+  sync-wiki:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Checkout wiki
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}.wiki
+          path: wiki
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Sync docs to wiki
+        run: |
+          # Map docs/ filenames to wiki page names
+          declare -A PAGE_NAMES=(
+            ["getting-started.md"]="Getting-Started.md"
+            ["tui.md"]="TUI-Guide.md"
+            ["commands.md"]="Commands-Reference.md"
+            ["queries.md"]="Query-Guide.md"
+            ["configuration.md"]="Configuration.md"
+            ["data-model.md"]="Data-Model.md"
+          )
+
+          # Copy wiki-specific pages directly (already have wiki-style links)
+          cp docs/Home.md wiki/Home.md
+          cp docs/_Sidebar.md wiki/_Sidebar.md
+
+          for src in docs/*.md; do
+            # Skip wiki-specific pages, already copied above
+            case "$(basename "$src")" in Home.md|_Sidebar.md) continue;; esac
+            filename=$(basename "$src")
+            dest="${PAGE_NAMES[$filename]:-$filename}"
+
+            # Rewrite relative doc links to wiki page links
+            # e.g., [TUI Guide](tui.md) -> [TUI Guide](TUI-Guide)
+            content=$(sed \
+              -e 's|(getting-started\.md)|(Getting-Started)|g' \
+              -e 's|(tui\.md)|(TUI-Guide)|g' \
+              -e 's|(commands\.md)|(Commands-Reference)|g' \
+              -e 's|(queries\.md)|(Query-Guide)|g' \
+              -e 's|(configuration\.md)|(Configuration)|g' \
+              -e 's|(data-model\.md)|(Data-Model)|g' \
+              "$src")
+
+            echo "$content" > "wiki/$dest"
+          done
+
+          cd wiki
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "No wiki changes to commit"
+          else
+            git commit -m "Sync docs from main branch"
+            git push
+            echo "Wiki updated"
+          fi
