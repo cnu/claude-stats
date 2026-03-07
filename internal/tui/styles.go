@@ -28,4 +28,10 @@ var (
 	StatusBarStyle   = lipgloss.NewStyle().Foreground(ColorDim)
 	PlaceholderStyle = lipgloss.NewStyle().Foreground(ColorMuted).Italic(true)
 	DividerStyle     = lipgloss.NewStyle().Foreground(ColorBorder)
+
+	RowSelectedStyle   = lipgloss.NewStyle().Background(ColorBorder).Foreground(ColorCream)
+	RowNormalStyle     = lipgloss.NewStyle().Foreground(ColorCream)
+	ColumnHeaderStyle  = lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary).Underline(true)
+	RoleUserStyle      = lipgloss.NewStyle().Foreground(ColorGreen)
+	RoleAssistantStyle = lipgloss.NewStyle().Foreground(ColorPrimary)
 )

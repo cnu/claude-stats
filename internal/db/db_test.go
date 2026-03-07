@@ -573,3 +573,239 @@ func TestGetModelCostBreakdown_Empty(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, results)
 }
+
+// setupTestSessions creates multiple sessions across days for testing Phase 3 queries.
+func setupTestSessions(t *testing.T, db *DB) {
+	t.Helper()
+	day1 := time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC)
+	day2 := time.Date(2026, 3, 2, 14, 0, 0, 0, time.UTC)
+	day3 := time.Date(2026, 3, 8, 9, 0, 0, 0, time.UTC)
+
+	// Session 1: 2 messages, moderate cost, project "webapp"
+	require.NoError(t, db.IngestSession(
+		parser.SessionFile{Path: "/tmp/s1.jsonl", SessionID: "sess-1"},
+		[]parser.ParsedMessage{
+			{SessionID: "sess-1", UUID: "s1-m1", Timestamp: day1, Role: "user", CWD: "/home/user/Projects/webapp", ContentPreview: "help me build"},
+			{SessionID: "sess-1", UUID: "s1-m2", Timestamp: day1.Add(30 * time.Second), Role: "assistant", Model: "claude-sonnet-4-6-20250925",
+				Usage: parser.UsageStats{InputTokens: 1000, OutputTokens: 200, CacheCreationInputTokens: 500, CacheReadInputTokens: 2000}},
+		},
+	))
+
+	// Session 2: 4 messages, higher cost (opus), project "webapp"
+	require.NoError(t, db.IngestSession(
+		parser.SessionFile{Path: "/tmp/s2.jsonl", SessionID: "sess-2"},
+		[]parser.ParsedMessage{
+			{SessionID: "sess-2", UUID: "s2-m1", Timestamp: day2, Role: "user", CWD: "/home/user/Projects/webapp", ContentPreview: "fix the bug"},
+			{SessionID: "sess-2", UUID: "s2-m2", Timestamp: day2.Add(10 * time.Second), Role: "assistant", Model: "claude-opus-4-6-20250918",
+				Usage: parser.UsageStats{InputTokens: 2000, OutputTokens: 500, CacheCreationInputTokens: 1000, CacheReadInputTokens: 5000}},
+			{SessionID: "sess-2", UUID: "s2-m3", Timestamp: day2.Add(20 * time.Second), Role: "user", ContentPreview: "also refactor"},
+			{SessionID: "sess-2", UUID: "s2-m4", Timestamp: day2.Add(40 * time.Second), Role: "assistant", Model: "claude-opus-4-6-20250918",
+				Usage: parser.UsageStats{InputTokens: 3000, OutputTokens: 800}},
+		},
+	))
+
+	// Session 3: 2 messages, low cost, project "cli-tool"
+	require.NoError(t, db.IngestSession(
+		parser.SessionFile{Path: "/tmp/s3.jsonl", SessionID: "sess-3"},
+		[]parser.ParsedMessage{
+			{SessionID: "sess-3", UUID: "s3-m1", Timestamp: day3, Role: "user", CWD: "/home/user/Projects/cli-tool", ContentPreview: "add flag"},
+			{SessionID: "sess-3", UUID: "s3-m2", Timestamp: day3.Add(5 * time.Second), Role: "assistant", Model: "claude-haiku-4-5-20251001",
+				Usage: parser.UsageStats{InputTokens: 300, OutputTokens: 50}},
+		},
+	))
+
+	require.NoError(t, db.RebuildDailyStats(time.UTC))
+}
+
+func TestGetSessionList_SortByDate(t *testing.T) {
+	db, err := OpenMemory()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck
+	setupTestSessions(t, db)
+
+	entries, err := db.GetSessionList("date", 200)
+	require.NoError(t, err)
+	require.Len(t, entries, 3)
+	// Most recent first
+	assert.Equal(t, "sess-3", entries[0].SessionID)
+	assert.Equal(t, "sess-2", entries[1].SessionID)
+	assert.Equal(t, "sess-1", entries[2].SessionID)
+}
+
+func TestGetSessionList_SortByCost(t *testing.T) {
+	db, err := OpenMemory()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck
+	setupTestSessions(t, db)
+
+	entries, err := db.GetSessionList("cost", 200)
+	require.NoError(t, err)
+	require.Len(t, entries, 3)
+	// Most expensive first (opus session)
+	assert.Equal(t, "sess-2", entries[0].SessionID)
+	assert.Greater(t, entries[0].CostUSD, entries[1].CostUSD)
+}
+
+func TestGetSessionList_SortByMessages(t *testing.T) {
+	db, err := OpenMemory()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck
+	setupTestSessions(t, db)
+
+	entries, err := db.GetSessionList("messages", 200)
+	require.NoError(t, err)
+	require.Len(t, entries, 3)
+	// Most messages first
+	assert.Equal(t, "sess-2", entries[0].SessionID)
+	assert.Equal(t, 4, entries[0].MessageCount)
+}
+
+func TestGetSessionList_Empty(t *testing.T) {
+	db, err := OpenMemory()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck
+
+	entries, err := db.GetSessionList("date", 200)
+	require.NoError(t, err)
+	assert.Empty(t, entries)
+}
+
+func TestGetSessionDetail(t *testing.T) {
+	db, err := OpenMemory()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck
+	setupTestSessions(t, db)
+
+	d, err := db.GetSessionDetail("sess-2")
+	require.NoError(t, err)
+	assert.Equal(t, "sess-2", d.SessionID)
+	assert.Equal(t, "Projects/webapp", d.ProjectName)
+	assert.Equal(t, 4, d.MessageCount)
+	assert.Equal(t, 2, d.UserMsgCount)
+	assert.Equal(t, 2, d.AsstMsgCount)
+	assert.Equal(t, int64(5000), d.InputTokens)
+	assert.Equal(t, int64(1300), d.OutputTokens)
+	assert.Greater(t, d.CostUSD, 0.0)
+}
+
+func TestGetSessionDetail_NotFound(t *testing.T) {
+	db, err := OpenMemory()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck
+
+	_, err = db.GetSessionDetail("nonexistent")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "session not found")
+}
+
+func TestGetSessionMessages(t *testing.T) {
+	db, err := OpenMemory()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck
+	setupTestSessions(t, db)
+
+	msgs, err := db.GetSessionMessages("sess-2")
+	require.NoError(t, err)
+	require.Len(t, msgs, 4)
+	// Should be in chronological order
+	assert.Equal(t, "user", msgs[0].Role)
+	assert.Equal(t, "assistant", msgs[1].Role)
+	assert.Equal(t, "claude-opus-4-6-20250918", msgs[1].Model)
+	assert.True(t, msgs[0].Timestamp < msgs[1].Timestamp)
+	assert.Equal(t, "fix the bug", msgs[0].ContentPreview)
+}
+
+func TestGetSessionMessages_Empty(t *testing.T) {
+	db, err := OpenMemory()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck
+
+	msgs, err := db.GetSessionMessages("nonexistent")
+	require.NoError(t, err)
+	assert.Empty(t, msgs)
+}
+
+func TestGetWeeklyCosts(t *testing.T) {
+	db, err := OpenMemory()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck
+	setupTestSessions(t, db)
+
+	entries, err := db.GetWeeklyCosts(4)
+	require.NoError(t, err)
+	assert.NotEmpty(t, entries)
+	for _, e := range entries {
+		assert.NotEmpty(t, e.WeekStart)
+		assert.GreaterOrEqual(t, e.Cost, 0.0)
+	}
+}
+
+func TestGetMonthlyCosts(t *testing.T) {
+	db, err := OpenMemory()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck
+	setupTestSessions(t, db)
+
+	entries, err := db.GetMonthlyCosts(3)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Equal(t, "2026-03", entries[0].Month)
+	assert.Greater(t, entries[0].Cost, 0.0)
+	assert.Equal(t, 3, entries[0].Sessions)
+}
+
+func TestGetTopExpensiveSessions(t *testing.T) {
+	db, err := OpenMemory()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck
+	setupTestSessions(t, db)
+
+	entries, err := db.GetTopExpensiveSessions(2)
+	require.NoError(t, err)
+	require.Len(t, entries, 2)
+	// Most expensive first
+	assert.Equal(t, "sess-2", entries[0].SessionID)
+	assert.GreaterOrEqual(t, entries[0].CostUSD, entries[1].CostUSD)
+}
+
+func TestGetCostByProject(t *testing.T) {
+	db, err := OpenMemory()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck
+	setupTestSessions(t, db)
+
+	entries, err := db.GetCostByProject()
+	require.NoError(t, err)
+	require.Len(t, entries, 2)
+	// webapp has 2 sessions (more cost), cli-tool has 1
+	assert.Equal(t, "Projects/webapp", entries[0].ProjectName)
+	assert.Equal(t, 2, entries[0].SessionCount)
+	assert.Equal(t, "Projects/cli-tool", entries[1].ProjectName)
+	assert.Equal(t, 1, entries[1].SessionCount)
+}
+
+func TestGetCacheEfficiency(t *testing.T) {
+	db, err := OpenMemory()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck
+	setupTestSessions(t, db)
+
+	c, err := db.GetCacheEfficiency()
+	require.NoError(t, err)
+	assert.Greater(t, c.TotalCacheCreate, int64(0))
+	assert.Greater(t, c.TotalCacheRead, int64(0))
+	assert.Greater(t, c.HitRatio, 0.0)
+	assert.LessOrEqual(t, c.HitRatio, 1.0)
+}
+
+func TestGetCacheEfficiency_Empty(t *testing.T) {
+	db, err := OpenMemory()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck
+
+	c, err := db.GetCacheEfficiency()
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), c.TotalCacheCreate)
+	assert.Equal(t, int64(0), c.TotalCacheRead)
+	assert.Equal(t, 0.0, c.HitRatio)
+}

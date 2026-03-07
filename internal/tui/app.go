@@ -42,7 +42,9 @@ type App struct {
 	showHelp  bool
 
 	dashboard    DashboardModel
-	placeholders [5]PlaceholderModel // Sessions, Costs, Projects, Heatmap, Query
+	sessions     SessionsModel
+	costs        CostsModel
+	placeholders [3]PlaceholderModel // Projects, Heatmap, Query
 }
 
 // NewApp creates a new TUI app.
@@ -50,9 +52,9 @@ func NewApp(database *db.DB) App {
 	return App{
 		db:        database,
 		dashboard: NewDashboard(),
-		placeholders: [5]PlaceholderModel{
-			NewPlaceholder("Sessions"),
-			NewPlaceholder("Costs"),
+		sessions:  NewSessions(database),
+		costs:     NewCosts(database),
+		placeholders: [3]PlaceholderModel{
 			NewPlaceholder("Projects"),
 			NewPlaceholder("Heatmap"),
 			NewPlaceholder("Query"),
@@ -69,6 +71,7 @@ func (a App) Init() tea.Cmd {
 func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// Global keys handled first
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return a, tea.Quit
@@ -76,27 +79,42 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.showHelp = !a.showHelp
 			return a, nil
 		case "r":
-			a.dashboard.loading = true
-			return a, a.loadData
+			return a, a.refreshActiveTab()
 		case "1":
 			a.activeTab = TabDashboard
+			return a, nil
 		case "2":
-			a.activeTab = TabSessions
+			return a, a.switchToTab(TabSessions)
 		case "3":
-			a.activeTab = TabCosts
+			return a, a.switchToTab(TabCosts)
 		case "4":
 			a.activeTab = TabProjects
+			return a, nil
 		case "5":
 			a.activeTab = TabHeatmap
+			return a, nil
 		case "6":
 			a.activeTab = TabQuery
+			return a, nil
 		}
+
+		// Delegate remaining keys to active tab
+		var cmd tea.Cmd
+		switch a.activeTab {
+		case TabSessions:
+			a.sessions, cmd = a.sessions.Update(msg)
+		case TabCosts:
+			a.costs, cmd = a.costs.Update(msg)
+		}
+		return a, cmd
 
 	case tea.WindowSizeMsg:
 		a.width = msg.Width
 		a.height = msg.Height
 		// Forward to all tabs
 		a.dashboard, _ = a.dashboard.Update(msg)
+		a.sessions, _ = a.sessions.Update(msg)
+		a.costs, _ = a.costs.Update(msg)
 		for i := range a.placeholders {
 			a.placeholders[i], _ = a.placeholders[i].Update(msg)
 		}
@@ -105,9 +123,55 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case DataLoadedMsg:
 		a.dashboard, _ = a.dashboard.Update(msg)
 		return a, nil
+
+	case SessionsDataMsg:
+		a.sessions, _ = a.sessions.Update(msg)
+		return a, nil
+
+	case SessionDetailMsg:
+		a.sessions, _ = a.sessions.Update(msg)
+		return a, nil
+
+	case CostsDataMsg:
+		a.costs, _ = a.costs.Update(msg)
+		return a, nil
 	}
 
 	return a, nil
+}
+
+func (a *App) switchToTab(tab Tab) tea.Cmd {
+	a.activeTab = tab
+	switch tab {
+	case TabSessions:
+		if !a.sessions.loaded {
+			a.sessions.loading = true
+			return a.sessions.LoadCmd()
+		}
+	case TabCosts:
+		if !a.costs.loaded {
+			a.costs.loading = true
+			return a.costs.LoadCmd()
+		}
+	}
+	return nil
+}
+
+func (a *App) refreshActiveTab() tea.Cmd {
+	switch a.activeTab {
+	case TabDashboard:
+		a.dashboard.loading = true
+		return a.loadData
+	case TabSessions:
+		a.sessions.loading = true
+		a.sessions.loaded = false
+		return a.sessions.LoadCmd()
+	case TabCosts:
+		a.costs.loading = true
+		a.costs.loaded = false
+		return a.costs.LoadCmd()
+	}
+	return nil
 }
 
 // View renders the TUI.
@@ -124,8 +188,12 @@ func (a App) View() string {
 	switch a.activeTab {
 	case TabDashboard:
 		b.WriteString(a.dashboard.View())
+	case TabSessions:
+		b.WriteString(a.sessions.View())
+	case TabCosts:
+		b.WriteString(a.costs.View())
 	default:
-		idx := int(a.activeTab) - 1
+		idx := int(a.activeTab) - 3
 		if idx >= 0 && idx < len(a.placeholders) {
 			b.WriteString(a.placeholders[idx].View())
 		}
@@ -159,7 +227,14 @@ func (a App) renderTabBar() string {
 }
 
 func (a App) renderStatusBar() string {
-	return StatusBarStyle.Render(" 1-6:tabs  r:refresh  q:quit  ?:help")
+	base := " 1-6:tabs  r:refresh  q:quit  ?:help"
+	switch a.activeTab {
+	case TabSessions:
+		base += "  │  j/k:navigate  enter:detail  s:sort  esc:back"
+	case TabCosts:
+		base += "  │  d/w/m:daily/weekly/monthly  j/k:scroll"
+	}
+	return StatusBarStyle.Render(base)
 }
 
 func (a App) renderHelp() string {
@@ -167,7 +242,18 @@ func (a App) renderHelp() string {
   1-6    Switch tabs
   r      Refresh data
   q      Quit
-  ?      Toggle this help`
+  ?      Toggle this help
+
+  Sessions tab:
+    j/k    Navigate sessions
+    enter  View session detail
+    s      Cycle sort (date/cost/messages)
+    g/G    Jump to top/bottom
+    esc    Back to list
+
+  Costs tab:
+    d/w/m  Switch daily/weekly/monthly
+    j/k    Scroll content`
 	return CardStyle.Render(help)
 }
 

@@ -231,3 +231,282 @@ func (db *DB) GetModelCostBreakdown() ([]ModelCostBreakdown, error) {
 
 	return results, nil
 }
+
+// SessionListEntry represents a session in the sessions list.
+type SessionListEntry struct {
+	SessionID    string
+	ProjectName  string
+	FirstMsgAt   int64
+	MessageCount int
+	CostUSD      float64
+	DurationMs   int64
+}
+
+// GetSessionList returns sessions sorted by the given field.
+func (db *DB) GetSessionList(sortBy string, limit int) ([]SessionListEntry, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+
+	orderClause := "first_message_at DESC"
+	switch sortBy {
+	case "cost":
+		orderClause = "total_cost_usd DESC"
+	case "messages":
+		orderClause = "message_count DESC"
+	}
+
+	rows, err := db.conn.Query(fmt.Sprintf(`
+		SELECT session_id, COALESCE(project_name, ''), COALESCE(first_message_at, 0),
+			COALESCE(message_count, 0), COALESCE(total_cost_usd, 0), COALESCE(total_duration_ms, 0)
+		FROM sessions ORDER BY %s LIMIT ?`, orderClause), limit)
+	if err != nil {
+		return nil, fmt.Errorf("query session list: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var entries []SessionListEntry
+	for rows.Next() {
+		var e SessionListEntry
+		if err := rows.Scan(&e.SessionID, &e.ProjectName, &e.FirstMsgAt,
+			&e.MessageCount, &e.CostUSD, &e.DurationMs); err != nil {
+			return nil, fmt.Errorf("scan session list: %w", err)
+		}
+		entries = append(entries, e)
+	}
+	return entries, rows.Err()
+}
+
+// SessionDetail holds full details for a single session.
+type SessionDetail struct {
+	SessionID     string
+	ProjectName   string
+	GitBranch     string
+	ClaudeVersion string
+	FirstMsgAt    int64
+	LastMsgAt     int64
+	MessageCount  int
+	UserMsgCount  int
+	AsstMsgCount  int
+	InputTokens   int64
+	OutputTokens  int64
+	CacheCreate   int64
+	CacheRead     int64
+	CostUSD       float64
+	DurationMs    int64
+}
+
+// GetSessionDetail returns full details for a session.
+func (db *DB) GetSessionDetail(sessionID string) (*SessionDetail, error) {
+	d := &SessionDetail{}
+	err := db.conn.QueryRow(`
+		SELECT session_id, COALESCE(project_name, ''), COALESCE(git_branch, ''),
+			COALESCE(claude_version, ''),
+			COALESCE(first_message_at, 0), COALESCE(last_message_at, 0),
+			COALESCE(message_count, 0), COALESCE(user_message_count, 0),
+			COALESCE(assistant_message_count, 0),
+			COALESCE(total_input_tokens, 0), COALESCE(total_output_tokens, 0),
+			COALESCE(total_cache_create_tokens, 0), COALESCE(total_cache_read_tokens, 0),
+			COALESCE(total_cost_usd, 0), COALESCE(total_duration_ms, 0)
+		FROM sessions WHERE session_id = ?`, sessionID).Scan(
+		&d.SessionID, &d.ProjectName, &d.GitBranch, &d.ClaudeVersion,
+		&d.FirstMsgAt, &d.LastMsgAt,
+		&d.MessageCount, &d.UserMsgCount, &d.AsstMsgCount,
+		&d.InputTokens, &d.OutputTokens, &d.CacheCreate, &d.CacheRead,
+		&d.CostUSD, &d.DurationMs,
+	)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("session not found: %s", sessionID)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("query session detail: %w", err)
+	}
+	return d, nil
+}
+
+// MessageEntry represents a message in a session's message list.
+type MessageEntry struct {
+	UUID           string
+	Timestamp      int64
+	Role           string
+	Model          string
+	InputTokens    int
+	OutputTokens   int
+	CostUSD        float64
+	DurationMs     int64
+	ContentPreview string
+}
+
+// GetSessionMessages returns all messages for a session ordered by timestamp.
+func (db *DB) GetSessionMessages(sessionID string) ([]MessageEntry, error) {
+	rows, err := db.conn.Query(`
+		SELECT uuid, timestamp, role, COALESCE(model, ''),
+			COALESCE(input_tokens, 0), COALESCE(output_tokens, 0),
+			COALESCE(cost_usd, 0), COALESCE(duration_ms, 0),
+			COALESCE(content_preview, '')
+		FROM messages WHERE session_id = ?
+		ORDER BY timestamp ASC`, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("query session messages: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var entries []MessageEntry
+	for rows.Next() {
+		var e MessageEntry
+		if err := rows.Scan(&e.UUID, &e.Timestamp, &e.Role, &e.Model,
+			&e.InputTokens, &e.OutputTokens, &e.CostUSD, &e.DurationMs,
+			&e.ContentPreview); err != nil {
+			return nil, fmt.Errorf("scan message: %w", err)
+		}
+		entries = append(entries, e)
+	}
+	return entries, rows.Err()
+}
+
+// WeeklyCostEntry represents aggregated cost for one week.
+type WeeklyCostEntry struct {
+	WeekStart string
+	Cost      float64
+	Sessions  int
+	Messages  int
+}
+
+// GetWeeklyCosts returns cost aggregated by week for the last N weeks.
+func (db *DB) GetWeeklyCosts(weeks int) ([]WeeklyCostEntry, error) {
+	rows, err := db.conn.Query(`
+		SELECT date(date_key, 'weekday 0', '-6 days') as week_start,
+			SUM(total_cost_usd), SUM(session_count), SUM(message_count)
+		FROM daily_stats
+		WHERE date_key >= date('now', ? || ' days')
+		GROUP BY week_start
+		ORDER BY week_start ASC`, fmt.Sprintf("-%d", weeks*7))
+	if err != nil {
+		return nil, fmt.Errorf("query weekly costs: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var entries []WeeklyCostEntry
+	for rows.Next() {
+		var e WeeklyCostEntry
+		if err := rows.Scan(&e.WeekStart, &e.Cost, &e.Sessions, &e.Messages); err != nil {
+			return nil, fmt.Errorf("scan weekly cost: %w", err)
+		}
+		entries = append(entries, e)
+	}
+	return entries, rows.Err()
+}
+
+// MonthlyCostEntry represents aggregated cost for one month.
+type MonthlyCostEntry struct {
+	Month    string
+	Cost     float64
+	Sessions int
+	Messages int
+}
+
+// GetMonthlyCosts returns cost aggregated by month for the last N months.
+func (db *DB) GetMonthlyCosts(months int) ([]MonthlyCostEntry, error) {
+	rows, err := db.conn.Query(`
+		SELECT strftime('%Y-%m', date_key) as month,
+			SUM(total_cost_usd), SUM(session_count), SUM(message_count)
+		FROM daily_stats
+		WHERE date_key >= date('now', ? || ' months')
+		GROUP BY month
+		ORDER BY month ASC`, fmt.Sprintf("-%d", months))
+	if err != nil {
+		return nil, fmt.Errorf("query monthly costs: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var entries []MonthlyCostEntry
+	for rows.Next() {
+		var e MonthlyCostEntry
+		if err := rows.Scan(&e.Month, &e.Cost, &e.Sessions, &e.Messages); err != nil {
+			return nil, fmt.Errorf("scan monthly cost: %w", err)
+		}
+		entries = append(entries, e)
+	}
+	return entries, rows.Err()
+}
+
+// GetTopExpensiveSessions returns the most expensive sessions.
+func (db *DB) GetTopExpensiveSessions(limit int) ([]SessionListEntry, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	rows, err := db.conn.Query(`
+		SELECT session_id, COALESCE(project_name, ''), COALESCE(first_message_at, 0),
+			COALESCE(message_count, 0), COALESCE(total_cost_usd, 0), COALESCE(total_duration_ms, 0)
+		FROM sessions ORDER BY total_cost_usd DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("query top sessions: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var entries []SessionListEntry
+	for rows.Next() {
+		var e SessionListEntry
+		if err := rows.Scan(&e.SessionID, &e.ProjectName, &e.FirstMsgAt,
+			&e.MessageCount, &e.CostUSD, &e.DurationMs); err != nil {
+			return nil, fmt.Errorf("scan top session: %w", err)
+		}
+		entries = append(entries, e)
+	}
+	return entries, rows.Err()
+}
+
+// ProjectCostEntry represents cost grouped by project.
+type ProjectCostEntry struct {
+	ProjectName  string
+	Cost         float64
+	SessionCount int
+}
+
+// GetCostByProject returns cost grouped by project name.
+func (db *DB) GetCostByProject() ([]ProjectCostEntry, error) {
+	rows, err := db.conn.Query(`
+		SELECT COALESCE(project_name, '(unknown)'),
+			COALESCE(SUM(total_cost_usd), 0), COUNT(*)
+		FROM sessions
+		GROUP BY project_name
+		ORDER BY SUM(total_cost_usd) DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("query cost by project: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var entries []ProjectCostEntry
+	for rows.Next() {
+		var e ProjectCostEntry
+		if err := rows.Scan(&e.ProjectName, &e.Cost, &e.SessionCount); err != nil {
+			return nil, fmt.Errorf("scan project cost: %w", err)
+		}
+		entries = append(entries, e)
+	}
+	return entries, rows.Err()
+}
+
+// CacheEfficiency holds aggregate cache statistics.
+type CacheEfficiency struct {
+	TotalCacheCreate int64
+	TotalCacheRead   int64
+	HitRatio         float64
+}
+
+// GetCacheEfficiency returns aggregate cache statistics.
+func (db *DB) GetCacheEfficiency() (*CacheEfficiency, error) {
+	c := &CacheEfficiency{}
+	err := db.conn.QueryRow(`
+		SELECT COALESCE(SUM(total_cache_create_tokens), 0),
+			COALESCE(SUM(total_cache_read_tokens), 0)
+		FROM sessions`).Scan(&c.TotalCacheCreate, &c.TotalCacheRead)
+	if err != nil {
+		return nil, fmt.Errorf("query cache efficiency: %w", err)
+	}
+	total := c.TotalCacheCreate + c.TotalCacheRead
+	if total > 0 {
+		c.HitRatio = float64(c.TotalCacheRead) / float64(total)
+	}
+	return c, nil
+}
