@@ -182,8 +182,10 @@ func (db *DB) IngestSession(sessionFile parser.SessionFile, messages []parser.Pa
 		totalCCreate += msg.Usage.CacheCreationInputTokens
 		totalCRead += msg.Usage.CacheReadInputTokens
 		totalCost += costUSD
-		totalDurMs += msg.DurationMs
 	}
+
+	// Compute duration from first to last message timestamp
+	totalDurMs = lastMsg - firstMsg
 
 	// Update session with aggregated stats
 	if _, err := tx.Exec(`
