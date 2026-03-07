@@ -1,12 +1,15 @@
 # claude-stats
 
-A Go CLI tool that parses Claude Code's local JSONL session files into SQLite and provides analytics on usage, costs, and sessions.
+A Go CLI tool that parses Claude Code's local JSONL session files into SQLite and provides an interactive TUI dashboard for exploring usage, costs, and session analytics.
 
 All data stays local. No network calls, no telemetry.
 
 ## Install
 
 ```bash
+# Homebrew (macOS/Linux)
+brew install cnu/tap/claude-stats
+
 # From source
 go install github.com/cnu/claude-stats@latest
 
@@ -21,22 +24,39 @@ Requires Go 1.26+.
 ## Quick Start
 
 ```bash
-# Ingest your Claude Code session data into SQLite
+# Launch the interactive TUI (auto-ingests new data)
+claude-stats
+
+# Or ingest first, then explore
 claude-stats ingest
+claude-stats
 
-# Query your data
+# One-shot queries (natural language or SQL)
+claude-stats query "total cost"
+claude-stats query "cost this week"
 claude-stats query --sql "SELECT count(*) FROM sessions"
-claude-stats query --sql "SELECT date_key, total_cost_usd FROM daily_stats ORDER BY date_key DESC LIMIT 7"
-
-# See version info
-claude-stats version
 ```
+
+## TUI Dashboard
+
+Running `claude-stats` with no arguments launches an interactive terminal dashboard with 6 tabs:
+
+| Tab | Description | Key |
+|-----|-------------|-----|
+| **Dashboard** | Summary cards, 7-day cost chart, model breakdown | `1` |
+| **Sessions** | Scrollable session list, drill into message details | `2` |
+| **Costs** | Daily/weekly/monthly cost charts, top sessions, project breakdown | `3` |
+| **Projects** | Project list with cost/session stats, drill into sessions | `4` |
+| **Heatmap** | Activity grid by day-of-week and hour | `5` |
+| **Query** | Natural language or SQL queries with inline results | `6` |
+
+**Keyboard shortcuts:** `1`-`6` switch tabs, `j`/`k` navigate lists, `enter` drills in, `esc` goes back, `s` cycles sort, `r` refreshes, `q` quits.
 
 ## Commands
 
 ### `ingest`
 
-Scans `~/.claude/projects/` for JSONL session files and loads them into SQLite. Incremental by default — only new or modified files are processed.
+Scans `~/.claude/projects/` for JSONL session files (including subagent files) and loads them into SQLite. Incremental by default — only new or modified files are processed.
 
 ```bash
 claude-stats ingest              # Incremental ingest
@@ -48,17 +68,59 @@ claude-stats ingest --project myapp      # Only sessions matching project name
 
 ### `query`
 
-Run raw SQL queries against the database.
+Run natural language or SQL queries against the database.
 
 ```bash
-# Table output (default)
-claude-stats query --sql "SELECT project_name, count(*) as sessions, sum(total_cost_usd) as cost FROM sessions GROUP BY project_name ORDER BY cost DESC LIMIT 10"
+# Natural language queries
+claude-stats query "total cost"
+claude-stats query "cost today"
+claude-stats query "cost this week"
+claude-stats query "top 5 models"
+claude-stats query "cost by project"
+claude-stats query "most expensive session"
+claude-stats query "busiest day"
+claude-stats query "most used tools"
+claude-stats query "average cost per session"
 
-# JSON output
-claude-stats query --sql "SELECT * FROM daily_stats ORDER BY date_key DESC LIMIT 7" --format json
-
-# CSV output
+# Raw SQL queries
+claude-stats query --sql "SELECT * FROM daily_stats ORDER BY date_key DESC LIMIT 7"
 claude-stats query --sql "SELECT tool_name, count(*) as uses FROM tool_uses GROUP BY tool_name ORDER BY uses DESC" --format csv
+
+# Output formats: table (default), json, csv
+claude-stats query "total cost" --format json
+```
+
+### `export`
+
+Export structured reports for external use.
+
+```bash
+# Export all sessions as CSV or JSON
+claude-stats export sessions                          # CSV to stdout
+claude-stats export sessions --format json -o sessions.json
+
+# Export cost summary report (Markdown or JSON)
+claude-stats export cost-summary                      # Markdown to stdout
+claude-stats export cost-summary -o report.md
+claude-stats export cost-summary --format json -o report.json
+
+# Backup the database
+claude-stats export dump -o backup.db
+```
+
+### `completion`
+
+Generate shell completion scripts.
+
+```bash
+# Bash
+claude-stats completion bash > /etc/bash_completion.d/claude-stats
+
+# Zsh
+claude-stats completion zsh > "${fpath[1]}/_claude-stats"
+
+# Fish
+claude-stats completion fish > ~/.config/fish/completions/claude-stats.fish
 ```
 
 ### `version`
@@ -77,83 +139,42 @@ claude-stats version
 --timezone <tz>       Timezone for date grouping (default: Local)
 ```
 
-## Database Schema
+## Environment Variables
 
-The SQLite database contains these tables:
+All global flags can be set via environment variables:
+
+| Variable | Corresponding Flag |
+|----------|-------------------|
+| `CLAUDE_STATS_DB` | `--db` |
+| `CLAUDE_STATS_CLAUDE_DIR` | `--claude-dir` |
+| `CLAUDE_STATS_VERBOSE` | `--verbose` |
+| `CLAUDE_STATS_TIMEZONE` | `--timezone` |
+| `NO_COLOR` | `--no-color` |
+
+Flags take precedence over environment variables.
+
+## Subagent Support
+
+Claude Code spawns subagents for complex tasks. Their JSONL files are stored at `~/.claude/projects/<hash>/<session-id>/subagents/agent-<id>.jsonl`. claude-stats automatically detects and ingests subagent files, merging their token usage and costs into the parent session. This is important — subagent costs are **not** reflected in the parent session's token counts and can represent the majority of API spend.
+
+## Database Schema
 
 | Table | Description |
 |-------|-------------|
-| `sessions` | One row per JSONL file — project, model, token totals, cost |
+| `sessions` | One row per session — project, model, token totals, cost |
 | `messages` | One row per message — role, model, tokens, cost, content preview |
 | `tool_uses` | One row per tool invocation — tool name, input preview |
 | `daily_stats` | Aggregated daily stats — session/message counts, tokens, cost |
 | `ingest_meta` | Tracks which files have been ingested (for incremental ingest) |
 
-### Useful Queries
-
-```sql
--- Total spend
-SELECT sum(total_cost_usd) FROM sessions;
-
--- Daily cost for the last 30 days
-SELECT date_key, total_cost_usd, message_count
-FROM daily_stats ORDER BY date_key DESC LIMIT 30;
-
--- Cost by project
-SELECT project_name, count(*) as sessions, sum(total_cost_usd) as cost
-FROM sessions GROUP BY project_name ORDER BY cost DESC;
-
--- Cost by model
-SELECT model, count(*) as messages, sum(cost_usd) as cost
-FROM messages WHERE model != '' GROUP BY model ORDER BY cost DESC;
-
--- Most used tools
-SELECT tool_name, count(*) as uses
-FROM tool_uses GROUP BY tool_name ORDER BY uses DESC LIMIT 20;
-
--- Most expensive sessions
-SELECT session_id, project_name, total_cost_usd, message_count
-FROM sessions ORDER BY total_cost_usd DESC LIMIT 10;
-
--- Cache efficiency
-SELECT
-  sum(cache_read_input_tokens) as cache_reads,
-  sum(input_tokens) as inputs,
-  round(100.0 * sum(cache_read_input_tokens) / (sum(input_tokens) + sum(cache_read_input_tokens)), 1) as cache_hit_pct
-FROM messages;
-```
-
-## Testing
-
-```bash
-# Run all tests
-make test
-
-# Run tests for a specific package
-go test ./internal/parser/ -v
-go test ./internal/pricing/ -v
-go test ./internal/db/ -v
-
-# Test against real data (uses a temp DB)
-claude-stats ingest --db /tmp/test.db
-claude-stats query --db /tmp/test.db --sql "SELECT count(*) FROM sessions"
-rm /tmp/test.db
-```
-
-## How It Works
-
-1. Claude Code stores all conversation data as JSONL files in `~/.claude/projects/<project-hash>/<session-uuid>.jsonl`
-2. `claude-stats ingest` parses these files, extracts messages/tool usage/token counts, calculates costs using model pricing tables, and stores everything in SQLite
-3. `claude-stats query` lets you run SQL against that database
-
-### Cost Calculation
+## Cost Calculation
 
 Costs are calculated from token counts using embedded pricing tables:
 
 | Model | Input ($/MTok) | Output ($/MTok) | Cache Write | Cache Read |
 |-------|---------------|-----------------|-------------|------------|
-| Opus 4 / 4.6 | $15.00 | $75.00 | $18.75 | $1.50 |
-| Sonnet 4 / 4.6 | $3.00 | $15.00 | $3.75 | $0.30 |
+| Opus 4 / 4.5 / 4.6 | $15.00 | $75.00 | $18.75 | $1.50 |
+| Sonnet 4 / 4.5 / 4.6 | $3.00 | $15.00 | $3.75 | $0.30 |
 | Haiku 4.5 | $0.80 | $4.00 | $1.00 | $0.08 |
 
 If a JSONL line includes a pre-calculated `costUSD` field, that value is used instead. Unknown models fall back to Sonnet pricing.
@@ -162,10 +183,22 @@ If a JSONL line includes a pre-calculated `costUSD` field, that value is used in
 
 ```
 cmd/claude-stats/main.go       Entrypoint
-internal/cli/                   Cobra commands (ingest, query, version)
+internal/cli/                   Cobra commands (ingest, query, export, tui, completion, version)
 internal/parser/                JSONL parsing (stream-based, lenient)
 internal/db/                    SQLite schema, migrations, queries
 internal/pricing/               Model pricing lookup
+internal/nlquery/               Natural language to SQL pattern matching
+internal/tui/                   Bubble Tea TUI screens (6 tabs)
+internal/export/                CSV/JSON/Markdown export
+```
+
+## Testing
+
+```bash
+make test                       # Run all tests
+make lint                       # Run linter
+make build                      # Build binary
+go test ./internal/parser/ -v   # Test specific package
 ```
 
 ## License
