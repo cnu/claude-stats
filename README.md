@@ -201,6 +201,15 @@ make build                      # Build binary
 go test ./internal/parser/ -v   # Test specific package
 ```
 
+## Documentation
+
+- [Getting Started](docs/getting-started.md) — Installation, first run, quick tour
+- [TUI Guide](docs/tui.md) — Detailed walkthrough of every tab and keyboard shortcut
+- [Commands Reference](docs/commands.md) — All CLI commands, flags, and examples
+- [Query Guide](docs/queries.md) — Natural language patterns and SQL examples
+- [Configuration](docs/configuration.md) — Environment variables, custom paths, timezone
+- [Data Model](docs/data-model.md) — Database schema, JSONL parsing, cost calculation
+
 ## License
 
 MIT
