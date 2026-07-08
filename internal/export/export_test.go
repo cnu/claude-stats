@@ -217,7 +217,7 @@ func setupTranscriptDB(t *testing.T, withSubagent bool) (*db.DB, string, string,
 	))
 
 	if withSubagent {
-		subDir := filepath.Join(tmpDir, "subagents")
+		subDir := filepath.Join(tmpDir, sessionID, "subagents")
 		require.NoError(t, os.MkdirAll(subDir, 0755))
 		subPath := filepath.Join(subDir, "agent-1.jsonl")
 		subJSONL := strings.Join([]string{

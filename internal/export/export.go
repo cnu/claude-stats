@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/cnu/claude-stats/internal/db"
+	"github.com/cnu/claude-stats/internal/parser"
 )
 
 // Sessions exports all sessions as CSV or JSON.
@@ -225,7 +225,7 @@ func SessionTranscript(database *db.DB, w io.Writer, sessionID string) error {
 		return err
 	}
 
-	sourcePaths, err := collectSessionSourcePaths(sourcePath)
+	sourcePaths, err := parser.CollectSessionSourcePaths(sourcePath)
 	if err != nil {
 		return err
 	}
@@ -247,36 +247,6 @@ func SessionTranscript(database *db.DB, w io.Writer, sessionID string) error {
 	})
 
 	return writeSessionMarkdown(w, detail, messages)
-}
-
-func collectSessionSourcePaths(primaryPath string) ([]string, error) {
-	if _, err := os.Stat(primaryPath); err != nil {
-		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("session source file not found: %s", primaryPath)
-		}
-		return nil, fmt.Errorf("stat source file %s: %w", primaryPath, err)
-	}
-
-	paths := []string{primaryPath}
-	subagentsDir := filepath.Join(filepath.Dir(primaryPath), "subagents")
-	entries, err := os.ReadDir(subagentsDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return paths, nil
-		}
-		return nil, fmt.Errorf("read subagents directory %s: %w", subagentsDir, err)
-	}
-
-	var subagentPaths []string
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".jsonl") {
-			continue
-		}
-		subagentPaths = append(subagentPaths, filepath.Join(subagentsDir, entry.Name()))
-	}
-	sort.Strings(subagentPaths)
-
-	return append(paths, subagentPaths...), nil
 }
 
 func writeSessionMarkdown(w io.Writer, detail *db.SessionDetail, messages []transcriptMessage) error {
