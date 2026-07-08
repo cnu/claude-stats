@@ -90,6 +90,16 @@ claude-stats query --sql "SELECT tool_name, count(*) as uses FROM tool_uses GROU
 claude-stats query "total cost" --format json
 ```
 
+### `search`
+
+Search full session transcripts for a keyword to find the session you want to resume with `claude --resume <session-id>`. Scans the original JSONL files (message text, thinking, and tool inputs), so it finds keywords the database previews miss.
+
+```bash
+claude-stats search "auth refactor"                  # Case-insensitive, newest first
+claude-stats search "flamingo" --project my-app      # Only one project
+claude-stats search "TODO" --case-sensitive --limit 5
+```
+
 ### `export`
 
 Export structured reports for external use.
