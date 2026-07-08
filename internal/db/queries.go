@@ -344,6 +344,46 @@ func (db *DB) GetSessionSourcePath(sessionID string) (string, error) {
 	return path, nil
 }
 
+// SessionSource pairs a session's identity with its source JSONL path.
+type SessionSource struct {
+	SessionID   string
+	ProjectName string
+	FilePath    string
+	FirstMsgAt  int64
+	LastMsgAt   int64
+}
+
+// GetSessionSources returns all sessions with their source JSONL paths,
+// newest activity first. A non-empty project filters by exact project_name.
+func (db *DB) GetSessionSources(project string) ([]SessionSource, error) {
+	query := `
+		SELECT session_id, COALESCE(project_name, ''), file_path,
+			COALESCE(first_message_at, 0), COALESCE(last_message_at, 0)
+		FROM sessions`
+	var args []any
+	if project != "" {
+		query += " WHERE project_name = ?"
+		args = append(args, project)
+	}
+	query += " ORDER BY last_message_at DESC"
+
+	rows, err := db.conn.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query session sources: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var sources []SessionSource
+	for rows.Next() {
+		var s SessionSource
+		if err := rows.Scan(&s.SessionID, &s.ProjectName, &s.FilePath, &s.FirstMsgAt, &s.LastMsgAt); err != nil {
+			return nil, fmt.Errorf("scan session source: %w", err)
+		}
+		sources = append(sources, s)
+	}
+	return sources, rows.Err()
+}
+
 // MessageEntry represents a message in a session's message list.
 type MessageEntry struct {
 	UUID           string

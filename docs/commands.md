@@ -216,6 +216,50 @@ claude-stats query "cost today" --verbose
 
 ---
 
+## `search`
+
+Search full session transcripts (including subagent transcripts) for a keyword and print matching sessions. Use it to find the session ID of a past conversation so you can resume it with `claude --resume <session-id>`.
+
+Unlike `query`, which works on the aggregated database, `search` scans the original JSONL transcript files, so it finds keywords anywhere in a conversation — message text, Claude's thinking, and tool inputs (file paths, commands).
+
+```bash
+claude-stats search <keyword> [flags]
+```
+
+### Arguments
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `keyword` | Yes | The keyword or phrase to search for (case-insensitive by default) |
+
+### Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--project <name>` | | Only search sessions from this project |
+| `--limit <n>` | `20` | Maximum sessions to return |
+| `--format <fmt>` | `table` | Output format: `table`, `json`, `csv` |
+| `--case-sensitive` | `false` | Match case exactly |
+
+### Examples
+
+```bash
+# Find sessions that mention a keyword
+claude-stats search "flamingo migration"
+
+# Only search one project
+claude-stats search "auth refactor" --project my-app
+
+# Grab the newest matching session ID and resume it
+claude --resume "$(claude-stats search "auth refactor" --format csv | tail -n +2 | head -1 | cut -d, -f1)"
+```
+
+Results are sorted newest-first (the session you want to resume is usually recent). Each row shows the full session ID, project, last-active date, the role of the first matching message, how many messages matched, and a snippet of the first match.
+
+Sessions must be ingested (`claude-stats ingest`) before they can be found; the search reads each session's transcript from the file path recorded at ingest time and skips sessions whose files have since been deleted.
+
+---
+
 ## `export`
 
 Export structured reports and data for use outside the TUI.

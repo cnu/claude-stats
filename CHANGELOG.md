@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- `search` command — full-transcript keyword search across sessions (including subagent transcripts) to find a session ID for `claude --resume`. Searches message text, thinking blocks, and tool inputs; supports `--project`, `--limit`, `--format`, and `--case-sensitive`.
+- `export session <session-id>` command and TUI `e` key — export a single session transcript as Markdown.
+
 ## [0.2.0] - 2026-03-08
 
 First feature-complete release. Adds an interactive TUI dashboard, natural language queries, data export, and subagent cost tracking.

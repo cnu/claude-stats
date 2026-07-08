@@ -736,6 +736,42 @@ func TestGetSessionSourcePath_NotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "session not found")
 }
 
+func TestGetSessionSources(t *testing.T) {
+	db, err := OpenMemory()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck
+	setupTestSessions(t, db)
+
+	sources, err := db.GetSessionSources("")
+	require.NoError(t, err)
+	require.Len(t, sources, 3)
+	// Newest activity first
+	assert.Equal(t, "sess-3", sources[0].SessionID)
+	assert.Equal(t, "sess-2", sources[1].SessionID)
+	assert.Equal(t, "sess-1", sources[2].SessionID)
+	assert.Equal(t, "/tmp/s2.jsonl", sources[1].FilePath)
+	assert.Equal(t, "Projects/webapp", sources[1].ProjectName)
+	assert.Greater(t, sources[0].LastMsgAt, int64(0))
+}
+
+func TestGetSessionSources_ProjectFilter(t *testing.T) {
+	db, err := OpenMemory()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck
+	setupTestSessions(t, db)
+
+	sources, err := db.GetSessionSources("Projects/webapp")
+	require.NoError(t, err)
+	require.Len(t, sources, 2)
+	for _, s := range sources {
+		assert.Equal(t, "Projects/webapp", s.ProjectName)
+	}
+
+	sources, err = db.GetSessionSources("Projects/nonexistent")
+	require.NoError(t, err)
+	assert.Empty(t, sources)
+}
+
 func TestGetSessionMessages(t *testing.T) {
 	db, err := OpenMemory()
 	require.NoError(t, err)
