@@ -617,6 +617,23 @@ func setupTestSessions(t *testing.T, db *DB) {
 	require.NoError(t, db.RebuildDailyStats(time.UTC))
 }
 
+// ingestRecentSession adds a session dated yesterday so queries with
+// relative date windows (weekly/monthly costs) have data to return.
+func ingestRecentSession(t *testing.T, db *DB) time.Time {
+	t.Helper()
+	recent := time.Now().UTC().Add(-24 * time.Hour)
+	require.NoError(t, db.IngestSession(
+		parser.SessionFile{Path: "/tmp/s-recent.jsonl", SessionID: "sess-recent"},
+		[]parser.ParsedMessage{
+			{SessionID: "sess-recent", UUID: "sr-m1", Timestamp: recent, Role: "user", CWD: "/home/user/Projects/webapp", ContentPreview: "recent work"},
+			{SessionID: "sess-recent", UUID: "sr-m2", Timestamp: recent.Add(10 * time.Second), Role: "assistant", Model: "claude-sonnet-4-6-20250925",
+				Usage: parser.UsageStats{InputTokens: 800, OutputTokens: 150}},
+		},
+	))
+	require.NoError(t, db.RebuildDailyStats(time.UTC))
+	return recent
+}
+
 func TestGetSessionList_SortByDate(t *testing.T) {
 	db, err := OpenMemory()
 	require.NoError(t, err)
@@ -730,6 +747,7 @@ func TestGetWeeklyCosts(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck
 	setupTestSessions(t, db)
+	ingestRecentSession(t, db)
 
 	entries, err := db.GetWeeklyCosts(4)
 	require.NoError(t, err)
@@ -745,13 +763,14 @@ func TestGetMonthlyCosts(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck
 	setupTestSessions(t, db)
+	recent := ingestRecentSession(t, db)
 
 	entries, err := db.GetMonthlyCosts(3)
 	require.NoError(t, err)
 	require.Len(t, entries, 1)
-	assert.Equal(t, "2026-03", entries[0].Month)
+	assert.Equal(t, recent.Format("2006-01"), entries[0].Month)
 	assert.Greater(t, entries[0].Cost, 0.0)
-	assert.Equal(t, 3, entries[0].Sessions)
+	assert.Equal(t, 1, entries[0].Sessions)
 }
 
 func TestGetTopExpensiveSessions(t *testing.T) {
