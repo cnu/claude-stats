@@ -88,12 +88,12 @@ func TestIngestSession(t *testing.T) {
 			ContentPreview: "hello world",
 		},
 		{
-			SessionID: "test-session-1",
-			UUID:      "msg-002",
+			SessionID:  "test-session-1",
+			UUID:       "msg-002",
 			ParentUUID: "msg-001",
-			Timestamp: ts.Add(5 * time.Second),
-			Role:      "assistant",
-			Model:     "claude-sonnet-4-6-20250925",
+			Timestamp:  ts.Add(5 * time.Second),
+			Role:       "assistant",
+			Model:      "claude-sonnet-4-6-20250925",
 			Usage: parser.UsageStats{
 				InputTokens:              1500,
 				OutputTokens:             200,
@@ -712,6 +712,27 @@ func TestGetSessionDetail_NotFound(t *testing.T) {
 
 	_, err = db.GetSessionDetail("nonexistent")
 	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "session not found")
+}
+
+func TestGetSessionSourcePath(t *testing.T) {
+	db, err := OpenMemory()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck
+	setupTestSessions(t, db)
+
+	path, err := db.GetSessionSourcePath("sess-2")
+	require.NoError(t, err)
+	assert.Equal(t, "/tmp/s2.jsonl", path)
+}
+
+func TestGetSessionSourcePath_NotFound(t *testing.T) {
+	db, err := OpenMemory()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck
+
+	_, err = db.GetSessionSourcePath("missing")
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "session not found")
 }
 

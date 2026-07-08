@@ -246,6 +246,31 @@ claude-stats export sessions --format json -o sessions.json
 claude-stats export sessions -o sessions.csv
 ```
 
+### `export session`
+
+Export one session transcript as Markdown with full message content.
+
+```bash
+claude-stats export session <session-id> [flags]
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-o, --output <file>` | stdout | Write Markdown to file instead of stdout |
+
+The transcript export:
+- Uses the session's original JSONL source file (plus any `subagents/*.jsonl` files)
+- Preserves full message content instead of `content_preview`
+- Renders messages in chronological order with UTC timestamps
+
+```bash
+# Markdown to stdout
+claude-stats export session abc123-session-id
+
+# Markdown to file
+claude-stats export session abc123-session-id -o session.md
+```
+
 ### `export cost-summary`
 
 Generate a cost summary report.
@@ -383,6 +408,9 @@ claude-stats export sessions -o sessions.csv
 
 # Or query specific data
 claude-stats query --sql "SELECT date_key, total_cost_usd FROM daily_stats" --format csv > daily.csv
+
+# Export one full chat transcript as Markdown
+claude-stats export session abc123-session-id -o session.md
 ```
 
 ### Backup Before Upgrade

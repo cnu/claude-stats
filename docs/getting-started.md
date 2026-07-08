@@ -125,6 +125,9 @@ Pull data out for use in spreadsheets, scripts, or backups:
 # All sessions as CSV
 claude-stats export sessions > sessions.csv
 
+# One full session transcript as Markdown
+claude-stats export session abc123-session-id > session.md
+
 # Cost report as Markdown
 claude-stats export cost-summary > report.md
 

@@ -26,6 +26,13 @@ var exportSessionsCmd = &cobra.Command{
 	RunE:  runExportSessions,
 }
 
+var exportSessionCmd = &cobra.Command{
+	Use:   "session <session-id>",
+	Short: "Export one session transcript as Markdown",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runExportSession,
+}
+
 var exportCostSummaryCmd = &cobra.Command{
 	Use:   "cost-summary",
 	Short: "Export cost summary report",
@@ -42,6 +49,8 @@ func init() {
 	exportSessionsCmd.Flags().StringVar(&exportFormat, "format", "csv", "Output format: csv, json")
 	exportSessionsCmd.Flags().StringVarP(&exportOutput, "output", "o", "", "Output file (default: stdout)")
 
+	exportSessionCmd.Flags().StringVarP(&exportOutput, "output", "o", "", "Output file (default: stdout)")
+
 	exportCostSummaryCmd.Flags().StringVar(&exportFormat, "format", "markdown", "Output format: markdown, json")
 	exportCostSummaryCmd.Flags().StringVarP(&exportOutput, "output", "o", "", "Output file (default: stdout)")
 
@@ -49,6 +58,7 @@ func init() {
 	exportDumpCmd.MarkFlagRequired("output") //nolint:errcheck
 
 	exportCmd.AddCommand(exportSessionsCmd)
+	exportCmd.AddCommand(exportSessionCmd)
 	exportCmd.AddCommand(exportCostSummaryCmd)
 	exportCmd.AddCommand(exportDumpCmd)
 	rootCmd.AddCommand(exportCmd)
@@ -84,6 +94,24 @@ func runExportCostSummary(cmd *cobra.Command, args []string) error {
 	defer cleanup()
 
 	return export.CostSummary(database, w, exportFormat)
+}
+
+func runExportSession(cmd *cobra.Command, args []string) error {
+	database, err := db.Open(dbPath)
+	if err != nil {
+		return fmt.Errorf("open database: %w", err)
+	}
+	defer database.Close() //nolint:errcheck
+
+	sessionID := args[0]
+
+	w, cleanup, err := getOutputWriter(exportOutput)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	return export.SessionTranscript(database, w, sessionID)
 }
 
 func runExportDump(cmd *cobra.Command, args []string) error {

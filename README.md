@@ -99,6 +99,10 @@ Export structured reports for external use.
 claude-stats export sessions                          # CSV to stdout
 claude-stats export sessions --format json -o sessions.json
 
+# Export one full session transcript as Markdown
+claude-stats export session <session-id>              # Markdown to stdout
+claude-stats export session <session-id> -o session.md
+
 # Export cost summary report (Markdown or JSON)
 claude-stats export cost-summary                      # Markdown to stdout
 claude-stats export cost-summary -o report.md
@@ -189,7 +193,7 @@ internal/db/                    SQLite schema, migrations, queries
 internal/pricing/               Model pricing lookup
 internal/nlquery/               Natural language to SQL pattern matching
 internal/tui/                   Bubble Tea TUI screens (6 tabs)
-internal/export/                CSV/JSON/Markdown export
+internal/export/                CSV/JSON/Markdown + transcript export
 ```
 
 ## Testing

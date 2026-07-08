@@ -281,7 +281,7 @@ func (a App) renderStatusBar() string {
 	base := " 1-6:tabs  r:refresh  q:quit  ?:help"
 	switch a.activeTab {
 	case TabSessions:
-		base += "  │  j/k:navigate  enter:detail  s:sort  esc:back"
+		base += "  │  j/k:navigate  enter:detail  s:sort  e:export-md  esc:back"
 	case TabCosts:
 		base += "  │  d/w/m:daily/weekly/monthly  j/k:scroll"
 	case TabProjects:
@@ -305,6 +305,7 @@ func (a App) renderHelp() string {
     j/k    Navigate sessions
     enter  View session detail
     s      Cycle sort (date/cost/messages)
+    e      Export selected session to markdown in cwd
     g/G    Jump to top/bottom
     esc    Back to list
 

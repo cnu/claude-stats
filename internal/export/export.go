@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/cnu/claude-stats/internal/db"
@@ -53,12 +56,12 @@ func sessionsCSV(w io.Writer, sessions []db.SessionListEntry) error {
 
 func sessionsJSON(w io.Writer, sessions []db.SessionListEntry) error {
 	type sessionRow struct {
-		SessionID  string  `json:"session_id"`
-		Project    string  `json:"project"`
-		StartedAt  string  `json:"started_at"`
-		Messages   int     `json:"messages"`
-		CostUSD    float64 `json:"cost_usd"`
-		DurationS  float64 `json:"duration_s"`
+		SessionID string  `json:"session_id"`
+		Project   string  `json:"project"`
+		StartedAt string  `json:"started_at"`
+		Messages  int     `json:"messages"`
+		CostUSD   float64 `json:"cost_usd"`
+		DurationS float64 `json:"duration_s"`
 	}
 
 	rows := make([]sessionRow, 0, len(sessions))
@@ -171,11 +174,11 @@ func costSummaryMarkdown(w io.Writer, summary *db.DashboardSummary, monthly []db
 
 func costSummaryJSON(w io.Writer, summary *db.DashboardSummary, monthly []db.MonthlyCostEntry, models []db.ModelCostBreakdown, projects []db.ProjectCostEntry) error {
 	report := struct {
-		GeneratedAt string                 `json:"generated_at"`
-		Summary     *db.DashboardSummary   `json:"summary"`
-		Monthly     []db.MonthlyCostEntry  `json:"monthly_costs"`
+		GeneratedAt string                  `json:"generated_at"`
+		Summary     *db.DashboardSummary    `json:"summary"`
+		Monthly     []db.MonthlyCostEntry   `json:"monthly_costs"`
 		Models      []db.ModelCostBreakdown `json:"cost_by_model"`
-		Projects    []db.ProjectCostEntry  `json:"cost_by_project"`
+		Projects    []db.ProjectCostEntry   `json:"cost_by_project"`
 	}{
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
 		Summary:     summary,
@@ -208,4 +211,118 @@ func Dump(srcDBPath, outputPath string) error {
 	}
 
 	return dst.Close()
+}
+
+// SessionTranscript exports one session transcript as Markdown.
+func SessionTranscript(database *db.DB, w io.Writer, sessionID string) error {
+	detail, err := database.GetSessionDetail(sessionID)
+	if err != nil {
+		return err
+	}
+
+	sourcePath, err := database.GetSessionSourcePath(sessionID)
+	if err != nil {
+		return err
+	}
+
+	sourcePaths, err := collectSessionSourcePaths(sourcePath)
+	if err != nil {
+		return err
+	}
+
+	var messages []transcriptMessage
+	for _, path := range sourcePaths {
+		parsed, err := parseTranscriptFile(path)
+		if err != nil {
+			return err
+		}
+		messages = append(messages, parsed...)
+	}
+
+	sort.Slice(messages, func(i, j int) bool {
+		if messages[i].Timestamp.Equal(messages[j].Timestamp) {
+			return messages[i].UUID < messages[j].UUID
+		}
+		return messages[i].Timestamp.Before(messages[j].Timestamp)
+	})
+
+	return writeSessionMarkdown(w, detail, messages)
+}
+
+func collectSessionSourcePaths(primaryPath string) ([]string, error) {
+	if _, err := os.Stat(primaryPath); err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("session source file not found: %s", primaryPath)
+		}
+		return nil, fmt.Errorf("stat source file %s: %w", primaryPath, err)
+	}
+
+	paths := []string{primaryPath}
+	subagentsDir := filepath.Join(filepath.Dir(primaryPath), "subagents")
+	entries, err := os.ReadDir(subagentsDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return paths, nil
+		}
+		return nil, fmt.Errorf("read subagents directory %s: %w", subagentsDir, err)
+	}
+
+	var subagentPaths []string
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".jsonl") {
+			continue
+		}
+		subagentPaths = append(subagentPaths, filepath.Join(subagentsDir, entry.Name()))
+	}
+	sort.Strings(subagentPaths)
+
+	return append(paths, subagentPaths...), nil
+}
+
+func writeSessionMarkdown(w io.Writer, detail *db.SessionDetail, messages []transcriptMessage) error {
+	p := func(format string, args ...any) {
+		_, _ = fmt.Fprintf(w, format, args...)
+	}
+
+	p("# Session Transcript: %s\n\n", detail.SessionID)
+	p("## Metadata\n\n")
+	p("| Field | Value |\n")
+	p("|---|---|\n")
+	p("| Session ID | %s |\n", detail.SessionID)
+	p("| Project | %s |\n", tableValue(detail.ProjectName, "(unknown)"))
+	p("| Git Branch | %s |\n", tableValue(detail.GitBranch, "(unknown)"))
+	p("| Claude Version | %s |\n", tableValue(detail.ClaudeVersion, "(unknown)"))
+	p("| Started At (UTC) | %s |\n", formatUnixMilli(detail.FirstMsgAt))
+	p("| Last Message At (UTC) | %s |\n", formatUnixMilli(detail.LastMsgAt))
+	p("| Message Count | %d |\n\n", detail.MessageCount)
+
+	if len(messages) == 0 {
+		p("No messages found.\n")
+		return nil
+	}
+
+	p("## Messages\n\n")
+	for i, msg := range messages {
+		p("### %d. %s - %s\n\n", i+1, strings.ToUpper(msg.Role), msg.Timestamp.UTC().Format(time.RFC3339))
+		if msg.Model != "" {
+			p("Model: `%s`\n\n", msg.Model)
+		}
+		p("%s\n\n", renderContentBlocks(msg.Content))
+	}
+
+	return nil
+}
+
+func tableValue(v, fallback string) string {
+	if v == "" {
+		return fallback
+	}
+	return strings.ReplaceAll(v, "|", "\\|")
+}
+
+func formatUnixMilli(ms int64) string {
+	if ms <= 0 {
+		return "(unknown)"
+	}
+	return time.UnixMilli(ms).UTC().Format(time.RFC3339)
 }

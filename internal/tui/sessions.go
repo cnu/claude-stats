@@ -38,10 +38,11 @@ type SessionsModel struct {
 	loaded   bool
 
 	// List view
-	sessions  []db.SessionListEntry
-	cursor    int
-	scrollTop int
-	sortBy    string
+	sessions     []db.SessionListEntry
+	cursor       int
+	scrollTop    int
+	sortBy       string
+	actionStatus string
 
 	// Detail view
 	view         sessionsView
@@ -136,6 +137,16 @@ func (m SessionsModel) updateList(msg tea.KeyMsg) (SessionsModel, tea.Cmd) {
 	case "g":
 		m.cursor = 0
 		m.scrollTop = 0
+	case "e":
+		if len(m.sessions) > 0 && m.cursor < len(m.sessions) {
+			sessionID := m.sessions[m.cursor].SessionID
+			path, err := exportSessionToCWD(m.database, sessionID)
+			if err != nil {
+				m.actionStatus = fmt.Sprintf("Export failed: %v", err)
+			} else {
+				m.actionStatus = fmt.Sprintf("Exported session Markdown: %s", path)
+			}
+		}
 	}
 	return m, nil
 }
@@ -219,7 +230,12 @@ func (m SessionsModel) View() string {
 func (m SessionsModel) renderList() string {
 	sortLabel := LabelStyle.Render(fmt.Sprintf("Sort: %s (s to change)", m.sortBy))
 	countLabel := LabelStyle.Render(fmt.Sprintf("%d sessions", len(m.sessions)))
-	header := fmt.Sprintf("  %s    %s", sortLabel, countLabel)
+	selectedID := m.sessions[m.cursor].SessionID
+	header := fmt.Sprintf("  %s    %s\n  %s",
+		sortLabel,
+		countLabel,
+		LabelStyle.Render(fmt.Sprintf("Selected ID: %s  (e to export .md in cwd)", selectedID)),
+	)
 
 	// Column headers
 	colHeader := fmt.Sprintf("  %-25s  %-12s  %6s  %8s  %8s",
@@ -268,6 +284,9 @@ func (m SessionsModel) renderList() string {
 	body := header + "\n\n" + colHeader + "\n" + strings.Join(rows, "\n")
 	if scrollInfo != "" {
 		body += "\n" + scrollInfo
+	}
+	if m.actionStatus != "" {
+		body += "\n\n" + LabelStyle.Render("  "+m.actionStatus)
 	}
 
 	return body

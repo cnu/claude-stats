@@ -34,6 +34,7 @@ Tabs with scrollable lists (Sessions, Projects) share these controls:
 | `Enter` | Drill into selected item |
 | `Esc` / `Backspace` | Back to list |
 | `s` | Cycle sort order |
+| `e` | Export selected session as Markdown in current working directory (Sessions tab) |
 | `g` | Jump to top |
 | `G` | Jump to bottom |
 
@@ -79,6 +80,8 @@ Each row shows:
 1. **Date** (default) — Most recent first
 2. **Cost** — Most expensive first
 3. **Messages** — Highest message count first
+
+Press `e` in the sessions list to export the selected session as Markdown into your current working directory.
 
 ### Detail View
 

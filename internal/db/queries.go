@@ -328,6 +328,22 @@ func (db *DB) GetSessionDetail(sessionID string) (*SessionDetail, error) {
 	return d, nil
 }
 
+// GetSessionSourcePath returns the original JSONL source path for a session.
+func (db *DB) GetSessionSourcePath(sessionID string) (string, error) {
+	var path string
+	err := db.conn.QueryRow(
+		"SELECT file_path FROM sessions WHERE session_id = ?",
+		sessionID,
+	).Scan(&path)
+	if err == sql.ErrNoRows {
+		return "", fmt.Errorf("session not found: %s", sessionID)
+	}
+	if err != nil {
+		return "", fmt.Errorf("query session source path: %w", err)
+	}
+	return path, nil
+}
+
 // MessageEntry represents a message in a session's message list.
 type MessageEntry struct {
 	UUID           string
@@ -493,12 +509,12 @@ func (db *DB) GetCostByProject() ([]ProjectCostEntry, error) {
 
 // ProjectListEntry represents a project with aggregated stats.
 type ProjectListEntry struct {
-	ProjectName  string
-	SessionCount int
+	ProjectName   string
+	SessionCount  int
 	TotalMessages int
-	TotalCost    float64
-	LastActiveAt int64
-	TopModel     string
+	TotalCost     float64
+	LastActiveAt  int64
+	TopModel      string
 }
 
 // GetProjectList returns projects with aggregated stats.
