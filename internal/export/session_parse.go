@@ -140,9 +140,9 @@ func renderContentBlocks(blocks []parser.ContentBlock) string {
 			if name == "" {
 				name = "(unnamed)"
 			}
-			b.WriteString(fmt.Sprintf("**Tool Use:** `%s`", name))
+			fmt.Fprintf(&b, "**Tool Use:** `%s`", name)
 			if block.ID != "" {
-				b.WriteString(fmt.Sprintf(" (`%s`)", block.ID))
+				fmt.Fprintf(&b, " (`%s`)", block.ID)
 			}
 			b.WriteString("\n\n```json\n")
 			if block.Input == nil {
@@ -162,7 +162,7 @@ func renderContentBlocks(blocks []parser.ContentBlock) string {
 			if t == "" {
 				t = "(unknown)"
 			}
-			b.WriteString(fmt.Sprintf("_(unsupported content block type: %s)_", t))
+			fmt.Fprintf(&b, "_(unsupported content block type: %s)_", t)
 		}
 	}
 
