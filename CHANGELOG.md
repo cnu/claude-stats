@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [0.3.0] - 2026-07-15
+## [0.3.0] - 2026-07-16
 
 Adds full-transcript search and single-session transcript export.
 
