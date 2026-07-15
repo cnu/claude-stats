@@ -53,6 +53,12 @@ changelog:
     - title: Other
       order: 999
 
+release:
+  # Overwrite existing assets instead of erroring on re-upload, so a failed
+  # release (e.g. an expired tap token) can be fixed by re-running the job
+  # rather than hand-deleting assets from the published release first.
+  mode: replace
+
 homebrew_casks:
   - repository:
       owner: cnu
