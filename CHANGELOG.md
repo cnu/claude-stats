@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-15
+
+Adds full-transcript search and single-session transcript export.
+
 ### Added
 
 - `search` command — full-transcript keyword search across sessions (including subagent transcripts) to find a session ID for `claude --resume`. Searches message text, thinking blocks, and tool inputs; supports `--project`, `--limit`, `--format`, and `--case-sensitive`.
@@ -68,6 +72,7 @@ Initial release. Core functionality for ingesting and querying Claude Code usage
 - **Model pricing engine** — embedded pricing tables for Opus, Sonnet, and Haiku model families with automatic cost calculation from token counts
 - **Version command** — prints version, build date, Go version, and OS/architecture
 
+[0.3.0]: https://github.com/cnu/claude-stats/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/cnu/claude-stats/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/cnu/claude-stats/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/cnu/claude-stats/compare/v0.1.0...v0.1.1

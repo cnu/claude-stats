@@ -50,7 +50,7 @@ Running `claude-stats` with no arguments launches an interactive terminal dashbo
 | **Heatmap** | Activity grid by day-of-week and hour | `5` |
 | **Query** | Natural language or SQL queries with inline results | `6` |
 
-**Keyboard shortcuts:** `1`-`6` switch tabs, `j`/`k` navigate lists, `enter` drills in, `esc` goes back, `s` cycles sort, `r` refreshes, `q` quits.
+**Keyboard shortcuts:** `1`-`6` switch tabs, `j`/`k` navigate lists, `enter` drills in, `esc` goes back, `s` cycles sort, `e` exports the selected session as Markdown (Sessions tab), `r` refreshes, `q` quits.
 
 ## Commands
 
@@ -197,11 +197,13 @@ If a JSONL line includes a pre-calculated `costUSD` field, that value is used in
 
 ```
 cmd/claude-stats/main.go       Entrypoint
-internal/cli/                   Cobra commands (ingest, query, export, tui, completion, version)
+internal/cli/                   Cobra commands (ingest, query, search, export, tui, completion, version)
 internal/parser/                JSONL parsing (stream-based, lenient)
 internal/db/                    SQLite schema, migrations, queries
+internal/analyzer/              Stats computation
 internal/pricing/               Model pricing lookup
 internal/nlquery/               Natural language to SQL pattern matching
+internal/search/                Full-transcript keyword search
 internal/tui/                   Bubble Tea TUI screens (6 tabs)
 internal/export/                CSV/JSON/Markdown + transcript export
 ```
