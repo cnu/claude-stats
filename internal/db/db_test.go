@@ -21,7 +21,7 @@ func TestOpenMemory(t *testing.T) {
 	var version int
 	err = db.conn.QueryRow("SELECT MAX(version) FROM schema_version").Scan(&version)
 	require.NoError(t, err)
-	assert.Equal(t, 1, version)
+	assert.Equal(t, 2, version)
 }
 
 func TestMigrations_Idempotent(t *testing.T) {
@@ -442,7 +442,7 @@ func TestOpen_FileDB(t *testing.T) {
 	var version int
 	err = db.Conn().QueryRow("SELECT MAX(version) FROM schema_version").Scan(&version)
 	require.NoError(t, err)
-	assert.Equal(t, 1, version)
+	assert.Equal(t, 2, version)
 }
 
 func TestExtractProjectName(t *testing.T) {

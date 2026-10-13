@@ -100,6 +100,7 @@ func (db *DB) RunMigrations() error {
 		sql     string
 	}{
 		{1, migration1},
+		{2, migration2},
 	}
 
 	for _, m := range migrations {
