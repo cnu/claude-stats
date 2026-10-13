@@ -551,7 +551,7 @@ func TestGetModelCostBreakdown(t *testing.T) {
 		{SessionID: "sess-mb", UUID: "msg-mb1", Timestamp: ts, Role: "assistant", Model: "claude-sonnet-4-6-20250925",
 			Usage: parser.UsageStats{InputTokens: 1000, OutputTokens: 200}},
 		{SessionID: "sess-mb", UUID: "msg-mb2", Timestamp: ts.Add(time.Second), Role: "assistant", Model: "claude-opus-4-6-20250918",
-			Usage: parser.UsageStats{InputTokens: 500, OutputTokens: 100}},
+			Usage: parser.UsageStats{InputTokens: 1000, OutputTokens: 200}},
 		{SessionID: "sess-mb", UUID: "msg-mb3", Timestamp: ts.Add(2 * time.Second), Role: "user"},
 	}
 	require.NoError(t, db.IngestSession(parser.SessionFile{Path: "/tmp/mb.jsonl", SessionID: "sess-mb"}, msgs))

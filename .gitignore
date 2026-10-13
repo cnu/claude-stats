@@ -8,3 +8,4 @@ dist/
 .cachebro/
 claude-stats-requirements.md
 .vscode/
+/pricing.json

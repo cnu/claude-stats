@@ -1,11 +1,13 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 
+	"github.com/cnu/claude-stats/internal/pricing"
 	"github.com/spf13/cobra"
 )
 
@@ -21,6 +23,7 @@ var (
 	verbose   bool
 	noColor   bool
 	timezone  string
+	offline   bool
 )
 
 var rootCmd = &cobra.Command{
@@ -61,6 +64,17 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&verbose, "verbose", os.Getenv("CLAUDE_STATS_VERBOSE") != "", "Enable debug logging")
 	rootCmd.PersistentFlags().BoolVar(&noColor, "no-color", false, "Disable color output")
 	rootCmd.PersistentFlags().StringVar(&timezone, "timezone", defaultTimezone, "Timezone for date grouping")
+	rootCmd.PersistentFlags().BoolVar(&offline, "offline", os.Getenv("CLAUDE_STATS_OFFLINE") != "", "Do not fetch the latest model pricing; use cached or built-in prices")
+}
+
+// loadPricing fetches the latest model pricing (cached for 24h next to the
+// database) so that new models are priced correctly during ingest.
+func loadPricing(ctx context.Context) {
+	src := pricing.Load(ctx, pricing.LoadOptions{
+		CachePath: filepath.Join(filepath.Dir(dbPath), "pricing.json"),
+		Offline:   offline,
+	})
+	slog.Debug("pricing loaded", "source", src)
 }
 
 // Execute runs the root command.

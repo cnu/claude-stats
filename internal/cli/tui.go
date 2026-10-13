@@ -32,6 +32,7 @@ func runTUI(cmd *cobra.Command, args []string) error {
 	defer database.Close() //nolint:errcheck
 
 	if !skipIngest {
+		loadPricing(cmd.Context())
 		quickIngest(database)
 	}
 
