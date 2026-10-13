@@ -14,8 +14,13 @@ func TestLookupPricing_ExactMatch(t *testing.T) {
 		{"claude-opus-4-20250514", 15.0},
 		{"claude-sonnet-4-20250514", 3.0},
 		{"claude-sonnet-4-6-20250925", 3.0},
-		{"claude-opus-4-6-20250918", 15.0},
-		{"claude-haiku-4-5-20251001", 0.80},
+		{"claude-opus-4-6-20250918", 5.0},
+		{"claude-haiku-4-5-20251001", 1.0},
+		{"claude-opus-5", 5.0},
+		{"claude-opus-5-5", 4.0},
+		{"claude-sonnet-5-5", 2.0},
+		{"claude-haiku-5-5", 0.10},
+		{"claude-fable-5-1", 10.0},
 	}
 
 	for _, tt := range tests {
@@ -29,9 +34,9 @@ func TestLookupPricing_ShortName(t *testing.T) {
 		short string
 		input float64
 	}{
-		{"claude-opus-4-6", 15.0},
+		{"claude-opus-4-6", 5.0},
 		{"claude-sonnet-4-6", 3.0},
-		{"claude-haiku-4-5", 0.80},
+		{"claude-haiku-4-5", 1.0},
 		{"claude-opus-4", 15.0},
 		{"claude-sonnet-4", 3.0},
 	}
@@ -44,9 +49,36 @@ func TestLookupPricing_ShortName(t *testing.T) {
 
 func TestLookupPricing_UnknownModel(t *testing.T) {
 	p := LookupPricing("claude-unknown-99")
-	// Should fall back to Sonnet pricing
-	assert.Equal(t, 3.0, p.InputPerMTok)
-	assert.Equal(t, 15.0, p.OutputPerMTok)
+	// Should fall back to the newest Sonnet pricing
+	assert.Equal(t, 2.0, p.InputPerMTok)
+	assert.Equal(t, 10.0, p.OutputPerMTok)
+}
+
+func TestLookupPricing_UnknownModelUsesFamily(t *testing.T) {
+	assert.Equal(t, 4.0, LookupPricing("claude-opus-9").InputPerMTok)
+	assert.Equal(t, 0.10, LookupPricing("claude-haiku-9").InputPerMTok)
+}
+
+func TestNormalizeModel(t *testing.T) {
+	tests := map[string]string{
+		"claude-opus-4-5-20251101":                   "claude-opus-4-5",
+		"claude-opus-4-6[1m]":                        "claude-opus-4-6",
+		"us.anthropic.claude-opus-4-5-20251101-v1:0": "claude-opus-4-5",
+		"anthropic/claude-sonnet-4-5":                "claude-sonnet-4-5",
+		"claude-sonnet-4-5@20250929":                 "claude-sonnet-4-5",
+		"claude-opus-5":                              "claude-opus-5",
+	}
+	for in, want := range tests {
+		assert.Equal(t, want, NormalizeModel(in), "input: %s", in)
+	}
+}
+
+func TestSetOverrides(t *testing.T) {
+	t.Cleanup(func() { SetOverrides(nil, SourceEmbedded) })
+	SetOverrides(map[string]ModelPricing{"claude-opus-5": {InputPerMTok: 7}}, SourceRemote)
+	assert.Equal(t, 7.0, LookupPricing("claude-opus-5").InputPerMTok)
+	assert.Equal(t, 3.0, LookupPricing("claude-sonnet-4-6").InputPerMTok, "embedded table still used for missing models")
+	assert.Equal(t, SourceRemote, ActiveSource())
 }
 
 func TestCalculateCost_Sonnet(t *testing.T) {
@@ -58,11 +90,11 @@ func TestCalculateCost_Sonnet(t *testing.T) {
 }
 
 func TestCalculateCost_Opus(t *testing.T) {
-	// 1000 input at $15/MTok = $0.015
-	// 500 output at $75/MTok = $0.0375
-	// Total = $0.0525
+	// 1000 input at $5/MTok = $0.005
+	// 500 output at $25/MTok = $0.0125
+	// Total = $0.0175
 	cost := CalculateCost("claude-opus-4-6-20250918", 1000, 500, 0, 0)
-	assert.InDelta(t, 0.0525, cost, 0.0001)
+	assert.InDelta(t, 0.0175, cost, 0.0001)
 }
 
 func TestCalculateCost_WithCache(t *testing.T) {
@@ -77,11 +109,11 @@ func TestCalculateCost_WithCache(t *testing.T) {
 }
 
 func TestCalculateCost_Haiku(t *testing.T) {
-	// 10000 input at $0.80/MTok = $0.008
-	// 5000 output at $4.0/MTok = $0.02
-	// Total = $0.028
+	// 10000 input at $1.0/MTok = $0.01
+	// 5000 output at $5.0/MTok = $0.025
+	// Total = $0.035
 	cost := CalculateCost("claude-haiku-4-5-20251001", 10000, 5000, 0, 0)
-	assert.InDelta(t, 0.028, cost, 0.0001)
+	assert.InDelta(t, 0.035, cost, 0.0001)
 }
 
 func TestCalculateCost_ZeroTokens(t *testing.T) {
@@ -91,11 +123,11 @@ func TestCalculateCost_ZeroTokens(t *testing.T) {
 
 func TestCalculateCost_OpusWithFullCache(t *testing.T) {
 	// Opus: 5000 input, 800 output, 10000 cache create, 2000 cache read
-	// input: 5000 * 15.0/1M = 0.075
-	// output: 800 * 75.0/1M = 0.06
-	// cache_create: 10000 * 18.75/1M = 0.1875
-	// cache_read: 2000 * 1.5/1M = 0.003
-	// Total = 0.3255
+	// input: 5000 * 5.0/1M = 0.025
+	// output: 800 * 25.0/1M = 0.02
+	// cache_create: 10000 * 6.25/1M = 0.0625
+	// cache_read: 2000 * 0.5/1M = 0.001
+	// Total = 0.1085
 	cost := CalculateCost("claude-opus-4-6-20250918", 5000, 800, 10000, 2000)
-	assert.InDelta(t, 0.3255, cost, 0.0001)
+	assert.InDelta(t, 0.1085, cost, 0.0001)
 }

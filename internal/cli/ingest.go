@@ -43,6 +43,10 @@ func runIngest(cmd *cobra.Command, args []string) error {
 	}
 	defer database.Close() //nolint:errcheck
 
+	if !ingestDryRun {
+		loadPricing(cmd.Context())
+	}
+
 	// Scan for JSONL files
 	files, err := parser.ScanDirectory(claudeDir)
 	if err != nil {
