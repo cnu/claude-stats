@@ -84,3 +84,9 @@ CREATE INDEX IF NOT EXISTS idx_tool_uses_session ON tool_uses(session_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_name);
 CREATE INDEX IF NOT EXISTS idx_sessions_first_msg ON sessions(first_message_at);
 `
+
+// migration2 marks messages whose cost came from the JSONL costUSD field, so
+// that RecalculateCosts can keep those costs and reprice only computed ones.
+const migration2 = `
+ALTER TABLE messages ADD COLUMN cost_recorded INTEGER DEFAULT 0;
+`

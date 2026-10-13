@@ -82,8 +82,8 @@ func (db *DB) IngestSession(sessionFile parser.SessionFile, messages []parser.Pa
 	msgStmt, err := tx.Prepare(`
 		INSERT OR REPLACE INTO messages (uuid, session_id, parent_uuid, timestamp, role, model,
 			input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens,
-			cost_usd, duration_ms, content_preview)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+			cost_usd, cost_recorded, duration_ms, content_preview)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return fmt.Errorf("prepare message insert: %w", err)
 	}
@@ -136,7 +136,7 @@ func (db *DB) IngestSession(sessionFile parser.SessionFile, messages []parser.Pa
 			msg.UUID, sessionID, msg.ParentUUID, tsMs, msg.Role, msg.Model,
 			msg.Usage.InputTokens, msg.Usage.OutputTokens,
 			msg.Usage.CacheCreationInputTokens, msg.Usage.CacheReadInputTokens,
-			costUSD, msg.DurationMs, msg.ContentPreview,
+			costUSD, msg.CostUSD != nil, msg.DurationMs, msg.ContentPreview,
 		); err != nil {
 			return fmt.Errorf("insert message %s: %w", msg.UUID, err)
 		}
@@ -246,8 +246,8 @@ func (db *DB) IngestSubagent(sessionFile parser.SessionFile, messages []parser.P
 	msgStmt, err := tx.Prepare(`
 		INSERT OR IGNORE INTO messages (uuid, session_id, parent_uuid, timestamp, role, model,
 			input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens,
-			cost_usd, duration_ms, content_preview)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+			cost_usd, cost_recorded, duration_ms, content_preview)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return fmt.Errorf("prepare message insert: %w", err)
 	}
@@ -281,7 +281,7 @@ func (db *DB) IngestSubagent(sessionFile parser.SessionFile, messages []parser.P
 			msg.UUID, sessionID, msg.ParentUUID, tsMs, msg.Role, msg.Model,
 			msg.Usage.InputTokens, msg.Usage.OutputTokens,
 			msg.Usage.CacheCreationInputTokens, msg.Usage.CacheReadInputTokens,
-			costUSD, msg.DurationMs, msg.ContentPreview,
+			costUSD, msg.CostUSD != nil, msg.DurationMs, msg.ContentPreview,
 		); err != nil {
 			return fmt.Errorf("insert subagent message %s: %w", msg.UUID, err)
 		}
