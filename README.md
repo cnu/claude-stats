@@ -66,6 +66,15 @@ claude-stats ingest --since 2026-03-01   # Only files modified after this date
 claude-stats ingest --project myapp      # Only sessions matching project name
 ```
 
+### `recalc`
+
+Reprices every message with the latest model pricing, using the token counts already stored in the database. The JSONL files are not needed, so this also works after Claude Code has deleted old transcripts. Session and daily totals are updated.
+
+```bash
+claude-stats recalc              # Fetch latest pricing and recalculate all costs
+claude-stats recalc --offline    # Recalculate with cached or built-in pricing
+```
+
 ### `query`
 
 Run natural language or SQL queries against the database.
@@ -151,6 +160,7 @@ claude-stats version
 --verbose             Enable debug logging
 --no-color            Disable color output
 --timezone <tz>       Timezone for date grouping (default: Local)
+--offline             Do not fetch the latest model pricing; use cached or built-in prices
 ```
 
 ## Environment Variables
@@ -163,6 +173,7 @@ All global flags can be set via environment variables:
 | `CLAUDE_STATS_CLAUDE_DIR` | `--claude-dir` |
 | `CLAUDE_STATS_VERBOSE` | `--verbose` |
 | `CLAUDE_STATS_TIMEZONE` | `--timezone` |
+| `CLAUDE_STATS_OFFLINE` | `--offline` |
 | `NO_COLOR` | `--no-color` |
 
 Flags take precedence over environment variables.
@@ -183,21 +194,30 @@ Claude Code spawns subagents for complex tasks. Their JSONL files are stored at 
 
 ## Cost Calculation
 
-Costs are calculated from token counts using embedded pricing tables:
+Costs are calculated from token counts. Before `ingest`, `recalc`, and the TUI's auto-ingest, claude-stats downloads the latest Anthropic model prices from the [LiteLLM price list](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json) and caches them for 24 hours in `pricing.json` next to the database. If the download fails, it uses the cached copy (even if stale), then a built-in table. Use `--offline` to skip the download.
 
-| Model | Input ($/MTok) | Output ($/MTok) | Cache Write | Cache Read |
-|-------|---------------|-----------------|-------------|------------|
-| Opus 4 / 4.5 / 4.6 | $15.00 | $75.00 | $18.75 | $1.50 |
-| Sonnet 4 / 4.5 / 4.6 | $3.00 | $15.00 | $3.75 | $0.30 |
-| Haiku 4.5 | $0.80 | $4.00 | $1.00 | $0.08 |
+Built-in prices (USD per million tokens):
 
-If a JSONL line includes a pre-calculated `costUSD` field, that value is used instead. Unknown models fall back to Sonnet pricing.
+| Model | Input | Output | Cache Write | Cache Read |
+|-------|-------|--------|-------------|------------|
+| Fable 5.1 / Mythos 5.1 | $10.00 | $50.00 | $12.50 | $0.25 |
+| Fable 5 / Mythos 5 | $10.00 | $50.00 | $12.50 | $1.00 |
+| Opus 5.5 | $4.00 | $20.00 | $5.00 | $0.20 |
+| Opus 4.5 – 5 | $5.00 | $25.00 | $6.25 | $0.50 |
+| Opus 4 / 4.1 | $15.00 | $75.00 | $18.75 | $1.50 |
+| Sonnet 5 / 5.5 | $2.00 | $10.00 | $2.50 | $0.20 |
+| Sonnet 3.5 – 4.6 | $3.00 | $15.00 | $3.75 | $0.30 |
+| Haiku 5.5 (prompts ≤ 100K) | $0.10 | $0.50 | $0.125 | $0.01 |
+| Haiku 4.5 | $1.00 | $5.00 | $1.25 | $0.10 |
+| Haiku 3.5 | $0.80 | $4.00 | $1.00 | $0.08 |
+
+Cache writes are priced at the 5-minute rate (1.25x input). Model IDs are matched without date or provider suffixes (`claude-opus-4-5-20251101`, `claude-opus-4-6[1m]`). An unknown model uses the newest model of its family (Opus, Sonnet, Haiku, ...) and logs one warning per model. If a JSONL line includes a pre-calculated `costUSD` field, that value is used and `recalc` keeps it.
 
 ## Project Structure
 
 ```
 cmd/claude-stats/main.go       Entrypoint
-internal/cli/                   Cobra commands (ingest, query, search, export, tui, completion, version)
+internal/cli/                   Cobra commands (ingest, recalc, query, search, export, tui, completion, version)
 internal/parser/                JSONL parsing (stream-based, lenient)
 internal/db/                    SQLite schema, migrations, queries
 internal/analyzer/              Stats computation

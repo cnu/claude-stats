@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-13
+
+Fetches the latest model pricing and fixes wrong costs for new and recent Claude models.
+
+### Added
+
+- Latest model pricing is downloaded from the LiteLLM price list before `ingest` and the TUI auto-ingest, and cached for 24 hours in `pricing.json` next to the database. Falls back to the cached copy, then the built-in table.
+- `recalc` command — reprices all stored messages from the token counts in the database and updates session and daily totals. Does not need the JSONL files.
+- `--offline` global flag (`CLAUDE_STATS_OFFLINE`) to skip the pricing download.
+
+### Fixed
+
+- `claude-opus-5`, `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-fable-5-1`, `claude-haiku-5-5`, and other recent models were priced as Sonnet 4 and logged an `unknown model` warning for every message.
+- Opus 4.5 / 4.6 were priced at $15 / $75 instead of $5 / $25, and Haiku 4.5 at $0.80 / $4 instead of $1 / $5.
+- The `unknown model` warning is now logged once per model, and unknown models use the newest model of the same family instead of Sonnet.
+- Model IDs with date, `[1m]`, Bedrock, or Vertex suffixes now match their base model.
+
+### Changed
+
+- Database schema version 2 adds a `messages.cost_recorded` column. Existing databases are migrated automatically. Run `claude-stats recalc` once to fix costs stored by earlier versions.
+
 ## [0.3.0] - 2026-07-16
 
 Adds full-transcript search and single-session transcript export.
@@ -72,6 +93,7 @@ Initial release. Core functionality for ingesting and querying Claude Code usage
 - **Model pricing engine** — embedded pricing tables for Opus, Sonnet, and Haiku model families with automatic cost calculation from token counts
 - **Version command** — prints version, build date, Go version, and OS/architecture
 
+[0.4.0]: https://github.com/cnu/claude-stats/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/cnu/claude-stats/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/cnu/claude-stats/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/cnu/claude-stats/compare/v0.1.1...v0.1.2
